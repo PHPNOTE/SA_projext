@@ -1,0 +1,30 @@
+# ===================================================================
+# Garage System Subproject .gitignore
+# ===================================================================
+
+# Java & Maven
+target/
+*.class
+*.jar
+*.war
+backend/data/*.db
+backend/data/*.trace.db
+backend/data/garagedb.*
+*.mv.db
+*.trace.db
+
+# Frontend / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env*.local
+frontend/*.tsbuildinfo
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store

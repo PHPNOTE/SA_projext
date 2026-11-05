@@ -1,0 +1,157 @@
+{
+  "timestamp": "2026-11-05T06:45:36.165Z",
+  "mode": "contract",
+  "tierFilter": "all",
+  "durationMs": 2810,
+  "totalSuites": 24,
+  "totalTestCases": 117,
+  "passed": 117,
+  "failed": 0,
+  "status": "SUCCESS",
+  "suites": [
+    {
+      "file": "tier1_features\\test_approval_insurance.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_checkin_queue.mjs",
+      "passed": 7,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_counter_sales.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_diagnostics_estimates.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_invoicing_settlement.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_po_backorders.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_qc_bay_release.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_reports_admin.mjs",
+      "passed": 7,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_stock_adjust_ledger.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier1_features\\test_warehouse_requisition.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier2_boundaries\\test_empty_missing_inputs.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier2_boundaries\\test_invalid_transitions.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier2_boundaries\\test_negative_zero_values.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier2_boundaries\\test_rbac_boundaries.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier2_boundaries\\test_stock_exhaustion.mjs",
+      "passed": 6,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier3_combinations\\test_backorder_priority_fifo.mjs",
+      "passed": 4,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier3_combinations\\test_multipart_requisition.mjs",
+      "passed": 4,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier3_combinations\\test_return_net_billing.mjs",
+      "passed": 4,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier3_combinations\\test_single_active_bay.mjs",
+      "passed": 5,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier3_combinations\\test_stock_ledger_balance.mjs",
+      "passed": 4,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier4_scenarios\\test_scenario1_walkin_repair.mjs",
+      "passed": 1,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier4_scenarios\\test_scenario2_insured_backorder.mjs",
+      "passed": 1,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier4_scenarios\\test_scenario3_counter_sale.mjs",
+      "passed": 1,
+      "failed": 0,
+      "code": 0
+    },
+    {
+      "file": "tier4_scenarios\\test_scenario4_additional_damage.mjs",
+      "passed": 1,
+      "failed": 0,
+      "code": 0
+    }
+  ]
+}

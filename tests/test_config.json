@@ -1,0 +1,12 @@
+{
+  "targetUrl": "http://localhost:8080/api",
+  "defaultMode": "contract",
+  "timeoutMs": 10000,
+  "roles": {
+    "frontDesk": { "username": "frontdesk", "password": "password123", "role": "FRONT_DESK" },
+    "mechanic": { "username": "somchai", "password": "password123", "role": "MECHANIC" },
+    "warehouse": { "username": "wichai", "password": "password123", "role": "WAREHOUSE" },
+    "sales": { "username": "somsri", "password": "password123", "role": "SALES" },
+    "manager": { "username": "admin", "password": "password123", "role": "MANAGER" }
+  }
+}
