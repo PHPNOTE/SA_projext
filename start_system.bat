@@ -28,9 +28,9 @@ echo       * Password    : (blank)
 echo.
 echo   Staff Demo Accounts (Password for all: password123):
 echo   - Front Desk      : frontdesk
-echo   - Mechanic        : mechanic1
-echo   - Warehouse       : warehouse1
-echo   - Sales Counter   : sales1
+echo   - Mechanic        : somchai (or prasert)
+echo   - Warehouse       : wichai
+echo   - Sales Counter   : somsri
 echo   - Administrator   : admin
 echo.
 echo   Opening http://localhost:3000 in your default browser...

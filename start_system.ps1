@@ -28,9 +28,9 @@ Write-Host "      * Password    : (blank)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  Staff Demo Accounts (Password for all: password123):" -ForegroundColor Yellow
 Write-Host "  - Front Desk      : frontdesk" -ForegroundColor White
-Write-Host "  - Mechanic        : mechanic1" -ForegroundColor White
-Write-Host "  - Warehouse       : warehouse1" -ForegroundColor White
-Write-Host "  - Sales Counter   : sales1" -ForegroundColor White
+Write-Host "  - Mechanic        : somchai (or prasert)" -ForegroundColor White
+Write-Host "  - Warehouse       : wichai" -ForegroundColor White
+Write-Host "  - Sales Counter   : somsri" -ForegroundColor White
 Write-Host "  - Administrator   : admin" -ForegroundColor White
 Write-Host ""
 Write-Host "  Opening http://localhost:3000 in your default browser..." -ForegroundColor Cyan

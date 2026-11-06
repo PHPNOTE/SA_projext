@@ -20,7 +20,7 @@
 | **Front Desk** | `frontdesk` | ลงทะเบียนรับรถ (`/front-desk/check-in`), ดูกระดานคิวสด (`/front-desk/queue`), ออกใบเสร็จ (`/front-desk/billing`) |
 | **Mechanic** | `somchai` | ตรวจวินิจฉัย/สร้างใบประเมินราคา Rev 1 (`/mechanic/diagnostics`), ขอเบิกอะไหล่, ตรวจ QC ปลดช่องซ่อม (`/mechanic/bay`) |
 | **Warehouse** | `wichai` | อนุมัติเบิกจ่ายอะไหล่ตัดสต็อก (`/warehouse/issuance`), ดูสมุดบัญชีสต็อก (`/warehouse/ledger`) |
-| **Sales Counter** | `frontdesk` | ขายอะไหล่หน้าร้าน POS ตัดสต็อกทันที (`/sales/pos`) |
+| **Sales Counter** | `somsri` | ขายอะไหล่หน้าร้าน POS ตัดสต็อกทันที (`/sales/pos`) |
 | **Service Manager** | `admin` | ดูแดชบอร์ดสถิติผู้บริหาร (`/admin/dashboard`), พิมพ์รายงานทางการ (`/reports/repairs`, `/reports/inventory`) |
 | **H2 Database Console** | `sa` (รหัสผ่านว่าง) | เข้าดูตารางสดที่ **`http://localhost:8080/h2-console`** (JDBC URL: `jdbc:h2:file:./data/garagedb`) |
 
