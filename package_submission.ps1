@@ -49,6 +49,16 @@ if (Test-Path $slidesFile) {
     Copy-Item -Path $slidesFile -Destination (Join-Path $outputDir "05_Presentation_Slides.pptx")
 }
 
+$abstractDocx = Join-Path $rootDir "ABSTRACT_TH_EN.docx"
+if (Test-Path $abstractDocx) {
+    Copy-Item -Path $abstractDocx -Destination (Join-Path $outputDir "06_Abstract_TH_EN.docx")
+}
+
+$pocketCheatSheet = Join-Path $garageDir "PRESENTATION_POCKET_CHEAT_SHEET.md"
+if (Test-Path $pocketCheatSheet) {
+    Copy-Item -Path $pocketCheatSheet -Destination (Join-Path $outputDir "07_Presentation_Pocket_Cheat_Sheet.md")
+}
+
 # 2. Package Source Code (Excluding heavy node_modules, target, .next to keep size under 30MB)
 Write-Host "[3/4] Packaging clean source code (excluding node_modules / target / temp)..." -ForegroundColor White
 $codeTarget = Join-Path $outputDir "Source_Code\garage_system"
