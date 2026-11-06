@@ -10,7 +10,7 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
   const [username, setUsername] = useState('frontdesk');
-  const [password, setPassword] = useState('••••••••');
+  const [password, setPassword] = useState('password123');
   const [selectedRole, setSelectedRole] = useState<UserRole>('FRONT_DESK');
   const [loading, setLoading] = useState(false);
 
@@ -26,21 +26,21 @@ export default function LoginPage() {
       role: 'MECHANIC',
       label: 'ช่างเทคนิค (Mechanic)',
       desc: 'ตรวจเช็คประเมินราคา, เบิกอะไหล่ซ่อม, ตรวจสอบคุณภาพ QC (R2-R5)',
-      defaultUser: 'mechanic1',
+      defaultUser: 'somchai',
       color: 'border-emerald-500 bg-emerald-50/10 text-emerald-400',
     },
     {
       role: 'WAREHOUSE',
       label: 'คลังอะไหล่ (Warehouse)',
       desc: 'จ่าย/รับคืนอะไหล่, รับของเข้าสต็อก (PO), ตรวจนับสต็อก (W1-W7)',
-      defaultUser: 'warehouse',
+      defaultUser: 'wichai',
       color: 'border-amber-500 bg-amber-50/10 text-amber-400',
     },
     {
       role: 'SALES',
       label: 'ขายหน้าร้าน (Sales Counter)',
       desc: 'เปิดบิลขายอะไหล่หน้าร้าน, หักสต็อกและออกใบเสร็จทันที (S1-S2)',
-      defaultUser: 'sales',
+      defaultUser: 'somsri',
       color: 'border-purple-500 bg-purple-50/10 text-purple-400',
     },
     {
@@ -55,6 +55,7 @@ export default function LoginPage() {
   const handleRoleSelect = (r: UserRole, user: string) => {
     setSelectedRole(r);
     setUsername(user);
+    setPassword('password123');
   };
 
   const handleLogin = async (e: React.FormEvent) => {

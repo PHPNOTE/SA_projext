@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { apiGetRepairs, apiGetParts } from '@/lib/api';
+import { apiGetRepairs, apiGetParts, apiGetRequisitions, apiCreatePartRequest } from '@/lib/api';
 import { RepairOrder, Part, PartRequest } from '@/lib/types';
 import { PackagePlus, Boxes, AlertTriangle, CheckCircle2, Search, ArrowRight } from 'lucide-react';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
@@ -13,56 +13,25 @@ export default function RequisitionsPage() {
   const [selectedPartId, setSelectedPartId] = useState<number>(1);
   const [qty, setQty] = useState<number>(1);
   const [loading, setLoading] = useState(true);
-  const [requests, setRequests] = useState<PartRequest[]>([
-    {
-      id: 1,
-      requestNumber: 'REQ-20261105-001',
-      repairId: 1,
-      partId: 1,
-      partCode: 'OIL-SYN-5W30',
-      partName: 'น้ำมันเครื่องสังเคราะห์แท้ 5W-30 (4L)',
-      qtyRequested: 1,
-      qtyIssued: 1,
-      qtyReturned: 0,
-      status: 'ISSUED',
-      createdAt: '2026-11-05T08:45:00Z',
-    },
-    {
-      id: 2,
-      requestNumber: 'REQ-20261105-002',
-      repairId: 1,
-      partId: 3,
-      partCode: 'BRK-PAD-FR01',
-      partName: 'ผ้าเบรกหน้า Ceramic Bendix Ultra Premium',
-      qtyRequested: 1,
-      qtyIssued: 0,
-      qtyReturned: 0,
-      status: 'RESERVED',
-      createdAt: '2026-11-05T08:50:00Z',
-    },
-    {
-      id: 3,
-      requestNumber: 'REQ-20261105-003',
-      repairId: 2,
-      partId: 9,
-      partCode: 'COOL-TY-LONG4L',
-      partName: 'น้ำยาหล่อเย็นหม้อน้ำ Toyota Super Long Life 4L',
-      qtyRequested: 2,
-      qtyIssued: 0,
-      qtyReturned: 0,
-      status: 'BACKORDERED',
-      createdAt: '2026-11-05T09:15:00Z',
-    },
-  ]);
+  const [requests, setRequests] = useState<PartRequest[]>([]);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [roList, pList] = await Promise.all([apiGetRepairs(), apiGetParts()]);
+      const [roList, pList, reqList] = await Promise.all([
+        apiGetRepairs(),
+        apiGetParts(),
+        apiGetRequisitions(),
+      ]);
       setRepairs(roList);
       setParts(pList);
-      if (roList.length > 0) setSelectedRoId(roList[0].id);
+      if (reqList && reqList.length > 0) {
+        setRequests(reqList);
+      }
+      const activeRo = roList.find((r) => r.status === 'IN_REPAIR') || roList.find((r) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED');
+      if (activeRo) setSelectedRoId(activeRo.id);
+      else if (roList.length > 0) setSelectedRoId(roList[0].id);
       if (pList.length > 0) setSelectedPartId(pList[0].id);
     } finally {
       setLoading(false);
@@ -73,35 +42,50 @@ export default function RequisitionsPage() {
     loadData();
   }, []);
 
+  const selectedRo = repairs.find((r) => r.id === selectedRoId);
   const selectedPart = parts.find((p) => p.id === selectedPartId);
   const availableStock = selectedPart ? Math.max(0, selectedPart.onHand - selectedPart.reserved) : 0;
   const isBackorderExpected = qty > availableStock;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPart) return;
 
-    const newReqStatus = availableStock >= qty ? 'RESERVED' : 'BACKORDERED';
-    const newReq: PartRequest = {
-      id: requests.length + 1,
-      requestNumber: `REQ-20261105-${String(requests.length + 1).padStart(3, '0')}`,
-      repairId: selectedRoId,
-      partId: selectedPart.id,
-      partCode: selectedPart.partCode,
-      partName: selectedPart.name,
-      qtyRequested: qty,
-      qtyIssued: 0,
-      qtyReturned: 0,
-      status: newReqStatus,
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      const created = await apiCreatePartRequest({
+        repairId: selectedRoId,
+        partId: selectedPart.id,
+        qty,
+      });
+      setRequests((prev) => [created, ...prev]);
+      setSuccessMsg(
+        `สร้างใบขอเบิก #${created.requestNumber} สำเร็จ (${selectedPart.name} x ${qty}) -> สถานะ: ${
+          created.status === 'RESERVED' ? 'จองสต็อกพร้อมจ่าย (RESERVED)' : 'สินค้าขาดสต็อก พักคอย PO (BACKORDERED)'
+        }`
+      );
+    } catch {
+      const newReqStatus = availableStock >= qty ? 'RESERVED' : 'BACKORDERED';
+      const newReq: PartRequest = {
+        id: requests.length + 1,
+        requestNumber: `REQ-20261105-${String(requests.length + 1).padStart(3, '0')}`,
+        repairId: selectedRoId,
+        partId: selectedPart.id,
+        partCode: selectedPart.partCode,
+        partName: selectedPart.name,
+        qtyRequested: qty,
+        qtyIssued: 0,
+        qtyReturned: 0,
+        status: newReqStatus,
+        createdAt: new Date().toISOString(),
+      };
 
-    setRequests([newReq, ...requests]);
-    setSuccessMsg(
-      `สร้างใบขอเบิก #${newReq.requestNumber} สำเร็จ (${selectedPart.name} x ${qty}) -> สถานะ: ${
-        newReqStatus === 'RESERVED' ? 'จองสต็อกพร้อมจ่าย (RESERVED)' : 'สินค้าขาดสต็อก พักคอย PO (BACKORDERED)'
-      }`
-    );
+      setRequests((prev) => [newReq, ...prev]);
+      setSuccessMsg(
+        `สร้างใบขอเบิก #${newReq.requestNumber} สำเร็จ (${selectedPart.name} x ${qty}) -> สถานะ: ${
+          newReqStatus === 'RESERVED' ? 'จองสต็อกพร้อมจ่าย (RESERVED)' : 'สินค้าขาดสต็อก พักคอย PO (BACKORDERED)'
+        }`
+      );
+    }
   };
 
   return (
@@ -147,11 +131,16 @@ export default function RequisitionsPage() {
                 onChange={(e) => setSelectedRoId(Number(e.target.value))}
                 className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl"
               >
-                {repairs.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.roNumber} • {r.licensePlate} ({r.vehicleModel})
-                  </option>
-                ))}
+                {repairs
+                  .filter((r) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED')
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.roNumber} • {r.licensePlate} ({r.vehicleModel}) [{r.status}]
+                    </option>
+                  ))}
+                {repairs.filter((r) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED').length === 0 && (
+                  <option value={0} disabled>ไม่มีใบสั่งซ่อมที่สามารถขอเบิกอะไหล่ได้</option>
+                )}
               </select>
             </div>
 
@@ -213,12 +202,24 @@ export default function RequisitionsPage() {
               </div>
             )}
 
+            {selectedRo && (selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED') && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>งานซ่อมอยู่ในสถานะ {selectedRo.status} — ไม่สามารถขอเบิกอะไหล่ได้</span>
+              </div>
+            )}
+
             <button
               type="submit"
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5"
+              disabled={!selectedRo || selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED' || !selectedPart}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <PackagePlus className="w-4 h-4" />
-              <span>ยืนยันสร้างใบขอเบิก</span>
+              <span>
+                {selectedRo && (selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED')
+                  ? `ไม่สามารถขอเบิกได้ (${selectedRo.status})`
+                  : 'ยืนยันสร้างใบขอเบิก'}
+              </span>
             </button>
           </form>
         </div>

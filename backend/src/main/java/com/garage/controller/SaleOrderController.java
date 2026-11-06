@@ -76,6 +76,17 @@ public class SaleOrderController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/complete")
+    public ResponseEntity<CompleteSaleResponse> directCompleteSale(
+        @RequestBody SingleShotSaleRequest req,
+        HttpServletRequest request
+    ) {
+        UserAccount user = resolveUser(request);
+        Long userId = user != null ? user.userId() : 6L;
+        CompleteSaleResponse response = saleOrderService.directCounterSale(req, userId);
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/{id}/cancel")
     public ResponseEntity<SaleOrder> cancelSale(@PathVariable Long id, HttpServletRequest request) {
         UserAccount user = resolveUser(request);

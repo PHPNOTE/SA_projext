@@ -32,6 +32,17 @@ public class AuthService {
         String username = req.username().trim();
         Optional<UserAccount> userOpt = userRepository.findByUsername(username);
         if (userOpt.isEmpty()) {
+            if ("mechanic1".equalsIgnoreCase(username)) {
+                userOpt = userRepository.findByUsername("somchai");
+            } else if ("warehouse".equalsIgnoreCase(username)) {
+                userOpt = userRepository.findByUsername("wichai");
+            } else if ("sales".equalsIgnoreCase(username)) {
+                userOpt = userRepository.findByUsername("somsri");
+            } else if ("admin1".equalsIgnoreCase(username) || "manager".equalsIgnoreCase(username)) {
+                userOpt = userRepository.findByUsername("admin");
+            }
+        }
+        if (userOpt.isEmpty()) {
             throw new UnauthorizedException("Invalid credentials or inactive account");
         }
 

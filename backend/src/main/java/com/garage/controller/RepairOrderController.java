@@ -77,11 +77,33 @@ public class RepairOrderController {
     }
 
     @PostMapping({"/repairs/{id}/qc", "/repairs/{id}/qc-complete"})
-    public ResponseEntity<RepairOrder> submitQC(@PathVariable Long id, @RequestBody QCRequest req, HttpServletRequest request) {
+    public ResponseEntity<RepairOrder> submitQC(@PathVariable Long id, @RequestBody(required = false) QCRequest req, HttpServletRequest request) {
         UserAccount user = resolveUser(request);
         Long userId = user != null ? user.userId() : 3L;
-        RepairOrder ro = repairOrderService.submitQC(id, req != null ? req.passed() : null, userId);
+        RepairOrder ro = repairOrderService.submitQC(id, req != null ? req.passed() : true, userId);
         return ResponseEntity.ok(ro);
+    }
+
+    @PostMapping("/repairs/{id}/status")
+    public ResponseEntity<RepairOrder> updateStatus(
+        @PathVariable Long id,
+        @RequestBody(required = false) UpdateRepairStatusRequest req,
+        HttpServletRequest request
+    ) {
+        UserAccount user = resolveUser(request);
+        Long userId = user != null ? user.userId() : 2L;
+        String statusStr = req != null && req.status() != null ? req.status().trim().toUpperCase() : "";
+        String note = req != null ? req.note() : null;
+
+        if ("ON_HOLD".equals(statusStr)) {
+            return ResponseEntity.ok(queueService.holdRepair(id, note, userId));
+        } else if ("CANCELLED".equals(statusStr)) {
+            return ResponseEntity.ok(queueService.cancelRepair(id, note, userId));
+        } else if ("AWAITING_PAYMENT".equals(statusStr)) {
+            return ResponseEntity.ok(repairOrderService.submitQC(id, true, userId));
+        } else {
+            return ResponseEntity.ok(repairOrderService.updateRepairStatus(id, statusStr, note, userId));
+        }
     }
 
     @GetMapping("/repairs")

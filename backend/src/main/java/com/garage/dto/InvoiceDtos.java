@@ -20,8 +20,13 @@ public class InvoiceDtos {
     ) {}
 
     public record PayInvoiceRequest(
+        @com.fasterxml.jackson.annotation.JsonAlias({"amount", "amountPaid"})
         BigDecimal amount,
+
+        @com.fasterxml.jackson.annotation.JsonAlias({"payerType", "payer"})
         String payerType,
+
+        @com.fasterxml.jackson.annotation.JsonAlias({"method", "paymentMethod"})
         String method
     ) {}
 

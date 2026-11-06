@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { apiGetParts, apiIssueParts, apiReturnParts } from '@/lib/api';
+import { apiGetParts, apiIssueParts, apiReturnParts, apiGetRequisitions } from '@/lib/api';
 import { Part, PartRequest } from '@/lib/types';
 import {
   ArrowRightLeft,
@@ -20,65 +20,11 @@ export default function WarehouseIssuancePage() {
   const [parts, setParts] = useState<Part[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Sample pending requisitions to issue
-  const [pendingRequests, setPendingRequests] = useState<PartRequest[]>([
-    {
-      id: 101,
-      requestNumber: 'REQ-20261105-002',
-      repairId: 1,
-      partId: 3,
-      partCode: 'BRK-PAD-FR01',
-      partName: 'ผ้าเบรกหน้า Ceramic Bendix Ultra Premium',
-      qtyRequested: 1,
-      qtyIssued: 0,
-      qtyReturned: 0,
-      status: 'RESERVED',
-      createdAt: '2026-11-05T08:50:00Z',
-    },
-    {
-      id: 102,
-      requestNumber: 'REQ-20261105-004',
-      repairId: 2,
-      partId: 1,
-      partCode: 'OIL-SYN-5W30',
-      partName: 'น้ำมันเครื่องสังเคราะห์แท้ 5W-30 (4L)',
-      qtyRequested: 1,
-      qtyIssued: 0,
-      qtyReturned: 0,
-      status: 'RESERVED',
-      createdAt: '2026-11-05T09:10:00Z',
-    },
-  ]);
+  // Requisitions to issue
+  const [pendingRequests, setPendingRequests] = useState<PartRequest[]>([]);
 
-  // Sample issued parts available for return
-  const [issuedRequests, setIssuedRequests] = useState<PartRequest[]>([
-    {
-      id: 99,
-      requestNumber: 'REQ-20261105-001',
-      repairId: 1,
-      partId: 1,
-      partCode: 'OIL-SYN-5W30',
-      partName: 'น้ำมันเครื่องสังเคราะห์แท้ 5W-30 (4L)',
-      qtyRequested: 1,
-      qtyIssued: 1,
-      qtyReturned: 0,
-      status: 'ISSUED',
-      createdAt: '2026-11-05T08:45:00Z',
-    },
-    {
-      id: 98,
-      requestNumber: 'REQ-20261104-012',
-      repairId: 5,
-      partId: 2,
-      partCode: 'FLT-OIL-TY01',
-      partName: 'ไส้กรองน้ำมันเครื่อง Toyota/Honda',
-      qtyRequested: 2,
-      qtyIssued: 2,
-      qtyReturned: 0,
-      status: 'ISSUED',
-      createdAt: '2026-11-04T10:15:00Z',
-    },
-  ]);
+  // Issued parts available for return
+  const [issuedRequests, setIssuedRequests] = useState<PartRequest[]>([]);
 
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [selectedReturnReq, setSelectedReturnReq] = useState<PartRequest | null>(null);
@@ -89,8 +35,15 @@ export default function WarehouseIssuancePage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const pList = await apiGetParts();
+      const [pList, reqList] = await Promise.all([
+        apiGetParts(),
+        apiGetRequisitions(),
+      ]);
       setParts(pList);
+      if (reqList && reqList.length > 0) {
+        setPendingRequests(reqList.filter((r) => r.status === 'RESERVED' || r.status === 'BACKORDERED'));
+        setIssuedRequests(reqList.filter((r) => r.status === 'ISSUED' || r.status === 'RETURNED'));
+      }
     } finally {
       setLoading(false);
     }

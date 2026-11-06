@@ -9,7 +9,7 @@ import { MockGarageServer } from './mock_server.mjs';
 export class GarageApiClient {
   constructor(options = {}) {
     this.mode = options.mode || 'contract';
-    this.targetUrl = options.targetUrl || 'http://localhost:8080/api';
+    this.targetUrl = options.targetUrl || process.env.TARGET_URL || 'http://localhost:8080/api';
     this.currentUser = null;
     this.token = null;
     this.mockServer = new MockGarageServer();
@@ -123,6 +123,10 @@ export class GarageApiClient {
       const id = path.match(/^\/repairs\/(\d+)\/priority-override$/)[1];
       return this.mockServer.handlePriorityOverride(id, body || {}, user);
     }
+    if (path.match(/^\/repairs\/(\d+)\/approve$/) && method === 'POST') {
+      const id = path.match(/^\/repairs\/(\d+)\/approve$/)[1];
+      return this.mockServer.handleRepairApprove(id, body || {}, user);
+    }
 
     // Diagnostics & Estimates
     if (path === '/estimates' && method === 'POST') return this.mockServer.handleCreateEstimate(body, user);
@@ -192,6 +196,7 @@ export class GarageApiClient {
   async overridePriority(id, priorityReason) { return this.request('POST', `/repairs/${id}/priority-override`, { priorityReason }); }
   async createEstimate(payload) { return this.request('POST', '/estimates', payload); }
   async decideEstimate(id, decision, insuranceDocsReceived) { return this.request('POST', `/estimates/${id}/decision`, { decision, insuranceDocsReceived }); }
+  async approveRepair(id, decision = 'APPROVED', insuranceDocsReceived = false) { return this.request('POST', `/repairs/${id}/approve`, { decision, insuranceDocsReceived }); }
   async upsertPart(payload) { return this.request('POST', '/warehouse/parts', payload); }
   async issuePart(requestId) { return this.request('POST', '/warehouse/issue', { requestId }); }
   async returnPart(requestId, qty) { return this.request('POST', '/warehouse/return', { requestId, qty }); }

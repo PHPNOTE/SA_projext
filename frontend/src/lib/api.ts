@@ -8,6 +8,7 @@ import {
   SaleOrder,
   Invoice,
   StockMovement,
+  PartRequest,
   RepairSummaryReport,
   InventoryUsageReport,
 } from './types';
@@ -132,10 +133,46 @@ export async function apiLogin(username: string, password: string, role?: UserRo
   }
 }
 
+function mapRepairOrder(ro: any, fallbackData?: any): RepairOrder {
+  const id = ro.id || ro.repairId || fallbackData?.id || 1;
+  const ticket = ro.ticketNumber || ro.ticketNo || `Q-20261105-${String(id).padStart(3, '0')}`;
+  const roNo = ro.roNumber || ro.ticketNo || `RO-20261105-${String(id).padStart(4, '0')}`;
+  return {
+    ...ro,
+    id,
+    roNumber: roNo,
+    ticketNumber: ticket,
+    queueClass: ro.queueClass || fallbackData?.queueClass || 'NORMAL',
+    status: ro.status || 'QUEUED',
+    customerId: ro.customerId || (ro.vehicleId ? 100 + ro.vehicleId : 101),
+    customerName: ro.customerName || fallbackData?.customerName || 'นายสมชาย ใจดี',
+    customerPhone: ro.customerPhone || ro.phone || fallbackData?.phone || '081-234-5678',
+    vehicleId: ro.vehicleId || 201,
+    licensePlate: ro.licensePlate || ro.plate || fallbackData?.licensePlate || '1กก-1234 กรุงเทพมหานคร',
+    vehicleModel: ro.vehicleModel || (ro.make && ro.model ? `${ro.make} ${ro.model}` : fallbackData?.brand && fallbackData?.model ? `${fallbackData.brand} ${fallbackData.model}` : 'Toyota Hilux Revo'),
+    mileage: ro.mileage ?? fallbackData?.mileage ?? 45000,
+    symptoms: ro.symptoms || ro.complaint || fallbackData?.symptoms || 'ตรวจเช็คระยะตามกำหนด',
+    priorityReason: ro.priorityReason || fallbackData?.priorityReason,
+    insurerName: ro.insurerName || fallbackData?.insurerName,
+    insuranceClaimNo: ro.insuranceClaimNo || ro.claimNo || fallbackData?.insuranceClaimNo,
+    assignedBayId: ro.assignedBayId ?? ro.bayId ?? null,
+    assignedBayNumber: ro.assignedBayNumber || (ro.bayId ? `Bay ${ro.bayId}` : null),
+    assignedMechanicId: ro.assignedMechanicId ?? ro.mechanicId ?? null,
+    assignedMechanicName: ro.assignedMechanicName || (ro.mechanicId === 3 ? 'สมชัย ช่างทอง' : ro.mechanicId === 4 ? 'ประเสริฐ ยอดช่าง' : null),
+    queuedAt: ro.queuedAt || new Date().toISOString(),
+    createdAt: ro.createdAt || ro.queuedAt || new Date().toISOString(),
+    completedAt: ro.completedAt || ro.closedAt || null,
+    subtotal: ro.subtotal ?? 0,
+    laborTotal: ro.laborTotal ?? 0,
+    partsTotal: ro.partsTotal ?? 0,
+  };
+}
+
 // ---------------- QUEUE & REPAIR API ----------------
 export async function apiGetQueue(): Promise<RepairOrder[]> {
   try {
-    return await request<RepairOrder[]>('/queue');
+    const list = await request<any[]>('/queue');
+    return list.map((r) => mapRepairOrder(r));
   } catch {
     return localStore.getRepairs().filter((r) => r.status === 'QUEUED' || r.status === 'IN_DIAGNOSIS' || r.status === 'ON_HOLD');
   }
@@ -154,11 +191,33 @@ export async function apiCheckIn(data: {
   insurerName?: string;
   insuranceClaimNo?: string;
 }): Promise<RepairOrder> {
+  const payload = {
+    customerName: data.customerName,
+    name: data.customerName,
+    customerPhone: data.phone,
+    phone: data.phone,
+    licensePlate: data.licensePlate,
+    plate: data.licensePlate,
+    make: data.brand,
+    brand: data.brand,
+    model: data.model,
+    year: 2022,
+    complaint: data.symptoms,
+    symptoms: data.symptoms,
+    queueClass: data.queueClass,
+    priorityReason: data.priorityReason,
+    insurerName: data.insurerName,
+    claimNo: data.insuranceClaimNo,
+    insuranceClaimNo: data.insuranceClaimNo,
+    insuranceDocsReceived: false,
+    insuranceCoveredAmount: 0,
+  };
   try {
-    return await request<RepairOrder>('/repairs', {
+    const res = await request<any>('/repairs', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
+    return mapRepairOrder(res, data);
   } catch {
     const count = localStore.getRepairs().length + 1;
     const pad = String(count).padStart(4, '0');
@@ -189,10 +248,11 @@ export async function apiCheckIn(data: {
 
 export async function apiCallNext(bayId: number, mechanicId: number): Promise<RepairOrder | null> {
   try {
-    return await request<RepairOrder>('/repairs/queue/call-next', {
+    const res = await request<any>('/repairs/queue/call-next', {
       method: 'POST',
       body: JSON.stringify({ bayId, mechanicId }),
     });
+    return mapRepairOrder(res);
   } catch {
     const queued = localStore.getRepairs().find((r) => r.status === 'QUEUED');
     if (!queued) return null;
@@ -212,7 +272,8 @@ export async function apiCallNext(bayId: number, mechanicId: number): Promise<Re
 
 export async function apiGetRepairs(): Promise<RepairOrder[]> {
   try {
-    return await request<RepairOrder[]>('/repairs');
+    const list = await request<any[]>('/repairs');
+    return list.map((r) => mapRepairOrder(r));
   } catch {
     return localStore.getRepairs();
   }
@@ -220,7 +281,8 @@ export async function apiGetRepairs(): Promise<RepairOrder[]> {
 
 export async function apiGetRepairById(id: number): Promise<RepairOrder | null> {
   try {
-    return await request<RepairOrder>(`/repairs/${id}`);
+    const res = await request<any>(`/repairs/${id}`);
+    return res ? mapRepairOrder(res) : null;
   } catch {
     return localStore.getRepairs().find((r) => r.id === id) || null;
   }
@@ -232,10 +294,23 @@ export async function apiUpdateRepairStatus(
   note?: string
 ): Promise<RepairOrder> {
   try {
-    return await request<RepairOrder>(`/repairs/${id}/status`, {
+    let endpoint = `/repairs/${id}/status`;
+    let body: any = { status, note };
+    if (status === 'ON_HOLD') {
+      endpoint = `/repairs/${id}/hold`;
+      body = { holdReason: note || 'WAITING_PARTS', status, note };
+    } else if (status === 'CANCELLED') {
+      endpoint = `/repairs/${id}/cancel`;
+      body = { reason: note || 'Cancelled by user', status, note };
+    } else if (status === 'AWAITING_PAYMENT' || status === 'QC') {
+      endpoint = `/repairs/${id}/status`;
+      body = { status, note };
+    }
+    const res = await request<any>(endpoint, {
       method: 'POST',
-      body: JSON.stringify({ status, note }),
+      body: JSON.stringify(body),
     });
+    return mapRepairOrder(res);
   } catch {
     const ro = localStore.getRepairs().find((r) => r.id === id);
     if (!ro) throw new Error('Repair order not found');
@@ -314,18 +389,52 @@ export async function apiApproveEstimate(
 // ---------------- WAREHOUSE & PARTS API ----------------
 export async function apiGetParts(): Promise<Part[]> {
   try {
-    return await request<Part[]>('/parts');
+    const list = await request<any[]>('/parts');
+    return list.map((p) => ({
+      id: p.id || p.partId,
+      partCode: p.partCode || p.sku,
+      name: p.name,
+      category: p.category || 'GENERAL',
+      shelfLocation: p.shelfLocation || 'A-1',
+      unitPrice: Number(p.unitPrice || p.sellPrice || 0),
+      costPrice: Number(p.costPrice || (Number(p.sellPrice || p.unitPrice || 0) * 0.7)),
+      onHand: p.onHand ?? 0,
+      reserved: p.reserved ?? 0,
+      reorderLevel: p.reorderLevel ?? 0,
+      isActive: p.isActive ?? true,
+    }));
   } catch {
     return localStore.getParts();
   }
 }
 
 export async function apiCreatePart(part: Omit<Part, 'id' | 'onHand' | 'reserved'>): Promise<Part> {
+  const payload = {
+    sku: part.partCode,
+    partCode: part.partCode,
+    name: part.name,
+    sellPrice: part.unitPrice,
+    unitPrice: part.unitPrice,
+    reorderLevel: part.reorderLevel,
+  };
   try {
-    return await request<Part>('/parts', {
+    const res = await request<any>('/parts', {
       method: 'POST',
-      body: JSON.stringify(part),
+      body: JSON.stringify(payload),
     });
+    return {
+      id: res.id || res.partId,
+      partCode: res.partCode || res.sku,
+      name: res.name,
+      category: part.category || 'GENERAL',
+      shelfLocation: part.shelfLocation || 'A-1',
+      unitPrice: Number(res.unitPrice || res.sellPrice || part.unitPrice),
+      costPrice: Number(res.costPrice || part.costPrice || 0),
+      onHand: res.onHand ?? 0,
+      reserved: res.reserved ?? 0,
+      reorderLevel: res.reorderLevel ?? part.reorderLevel,
+      isActive: res.isActive ?? true,
+    };
   } catch {
     const count = localStore.getParts().length + 1;
     const newPart: Part = {
@@ -339,11 +448,111 @@ export async function apiCreatePart(part: Omit<Part, 'id' | 'onHand' | 'reserved
   }
 }
 
+export async function apiGetRequisitions(): Promise<PartRequest[]> {
+  try {
+    const list = await request<any[]>('/requisitions');
+    return list.map((item) => ({
+      id: item.id || item.requestId,
+      requestNumber: item.requestNumber || `REQ-${item.requestId}`,
+      repairId: item.repairId,
+      estimateLineId: item.estimateLineId,
+      partId: item.partId,
+      partCode: item.partCode || 'PART',
+      partName: item.partName || 'อะไหล่',
+      qtyRequested: item.qtyRequested || item.qty || 1,
+      qtyIssued: item.qtyIssued || 0,
+      qtyReturned: item.qtyReturned || 0,
+      status: item.status || 'RESERVED',
+      createdAt: item.createdAt || new Date().toISOString(),
+    }));
+  } catch {
+    return [
+      {
+        id: 1,
+        requestNumber: 'REQ-20261105-001',
+        repairId: 1,
+        partId: 1,
+        partCode: 'OIL-SYN-5W30',
+        partName: 'น้ำมันเครื่องสังเคราะห์แท้ 5W-30 (4L)',
+        qtyRequested: 1,
+        qtyIssued: 1,
+        qtyReturned: 0,
+        status: 'ISSUED',
+        createdAt: '2026-11-05T08:45:00Z',
+      },
+      {
+        id: 2,
+        requestNumber: 'REQ-20261105-002',
+        repairId: 1,
+        partId: 3,
+        partCode: 'BRK-PAD-FR01',
+        partName: 'ผ้าเบรกหน้า Ceramic Bendix Ultra Premium',
+        qtyRequested: 1,
+        qtyIssued: 0,
+        qtyReturned: 0,
+        status: 'RESERVED',
+        createdAt: '2026-11-05T08:50:00Z',
+      },
+      {
+        id: 3,
+        requestNumber: 'REQ-20261105-003',
+        repairId: 2,
+        partId: 9,
+        partCode: 'COOL-TY-LONG4L',
+        partName: 'น้ำยาหล่อเย็นหม้อน้ำ Toyota Super Long Life 4L',
+        qtyRequested: 2,
+        qtyIssued: 0,
+        qtyReturned: 0,
+        status: 'BACKORDERED',
+        createdAt: '2026-11-05T09:15:00Z',
+      },
+    ];
+  }
+}
+
+export async function apiCreatePartRequest(data: { repairId: number; partId: number; qty: number }): Promise<PartRequest> {
+  try {
+    const res = await request<any>('/requisitions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return {
+      id: res.id || res.requestId,
+      requestNumber: res.requestNumber || `REQ-${res.requestId}`,
+      repairId: res.repairId,
+      estimateLineId: res.estimateLineId,
+      partId: res.partId,
+      partCode: res.partCode || 'PART',
+      partName: res.partName || 'อะไหล่',
+      qtyRequested: res.qtyRequested || res.qty,
+      qtyIssued: res.qtyIssued || 0,
+      qtyReturned: res.qtyReturned || 0,
+      status: res.status || 'RESERVED',
+      createdAt: res.createdAt || new Date().toISOString(),
+    };
+  } catch {
+    const p = localStore.getParts().find((x) => x.id === data.partId);
+    return {
+      id: Date.now(),
+      requestNumber: `REQ-${Date.now()}`,
+      repairId: data.repairId,
+      partId: data.partId,
+      partCode: p?.partCode || 'PART',
+      partName: p?.name || 'อะไหล่',
+      qtyRequested: data.qty,
+      qtyIssued: 0,
+      qtyReturned: 0,
+      status: 'RESERVED',
+      createdAt: new Date().toISOString(),
+    };
+  }
+}
+
 export async function apiIssueParts(requestId: number, partId: number, qty: number): Promise<any> {
   try {
     return await request('/warehouse/issue', {
       method: 'POST',
-      body: JSON.stringify({ requestId, partId, qty }),
+      body: JSON.stringify({ requestId, id: requestId, partId, qty }),
     });
   } catch {
     localStore.updatePart(partId, -qty, -qty);
@@ -366,7 +575,7 @@ export async function apiReturnParts(requestId: number, partId: number, qty: num
   try {
     return await request('/warehouse/return', {
       method: 'POST',
-      body: JSON.stringify({ requestId, partId, qty, reason }),
+      body: JSON.stringify({ requestId, id: requestId, partId, qty, reason }),
     });
   } catch {
     localStore.updatePart(partId, qty, 0);
@@ -389,7 +598,7 @@ export async function apiAdjustStock(partId: number, deltaOnHand: number, reason
   try {
     return await request('/warehouse/adjust', {
       method: 'POST',
-      body: JSON.stringify({ partId, deltaOnHand, reason }),
+      body: JSON.stringify({ partId, delta: deltaOnHand, deltaOnHand, reason }),
     });
   } catch {
     localStore.updatePart(partId, deltaOnHand, 0);
@@ -410,7 +619,21 @@ export async function apiAdjustStock(partId: number, deltaOnHand: number, reason
 
 export async function apiGetStockLedger(): Promise<StockMovement[]> {
   try {
-    return await request<StockMovement[]>('/warehouse/ledger');
+    const list = await request<any[]>('/warehouse/ledger');
+    return list.map((m) => ({
+      id: m.id || m.movementId,
+      partId: m.partId,
+      partCode: m.partCode || `PART-${m.partId}`,
+      partName: m.partName || 'อะไหล่',
+      movementType: m.movementType,
+      deltaOnHand: m.deltaOnHand,
+      deltaReserved: m.deltaReserved,
+      reason: m.reason || '-',
+      partRequestId: m.partRequestId,
+      poLineId: m.poLineId,
+      userName: m.userName || 'เจ้าหน้าที่คลัง',
+      createdAt: m.createdAt || new Date().toISOString(),
+    }));
   } catch {
     return localStore.getMovements();
   }
@@ -472,7 +695,7 @@ export async function apiReceivePurchaseOrder(poId: number, receivedLines: { poL
   try {
     return await request(`/purchase-orders/${poId}/receive`, {
       method: 'POST',
-      body: JSON.stringify({ receivedLines }),
+      body: JSON.stringify({ lines: receivedLines, receivedLines }),
     });
   } catch {
     const po = localStore.getPurchaseOrders().find((x) => x.id === poId);
@@ -498,6 +721,88 @@ export async function apiReceivePurchaseOrder(poId: number, receivedLines: { poL
   }
 }
 
+// ---------------- INVOICE MAPPER ----------------
+function mapInvoice(raw: any): Invoice {
+  if (!raw) {
+    return {
+      id: 0,
+      invoiceNumber: 'INV-0000',
+      customerName: 'ลูกค้าทั่วไป',
+      customerPhone: '-',
+      subtotal: 0,
+      vatAmount: 0,
+      totalWithVat: 0,
+      insuranceCovered: 0,
+      customerDue: 0,
+      status: 'ISSUED',
+      issuedAt: new Date().toISOString(),
+      lines: [],
+      payments: [],
+    };
+  }
+  const id = Number(raw.id || raw.invoiceId || 0);
+  const invoiceNumber = raw.invoiceNumber || raw.invoiceNo || `INV-${String(id).padStart(4, '0')}`;
+  const subtotal = Number(raw.subtotal || 0);
+  const vatAmount = Number(raw.vatAmount !== undefined ? raw.vatAmount : +(subtotal * 0.07).toFixed(2));
+  const totalWithVat = Number(raw.totalWithVat !== undefined ? raw.totalWithVat : +(subtotal + vatAmount).toFixed(2));
+  const insuranceCovered = Number(raw.insuranceCovered || 0);
+  const customerDue = Number(raw.customerDue !== undefined ? raw.customerDue : Math.max(0, +(totalWithVat - insuranceCovered).toFixed(2)));
+
+  const lines = Array.isArray(raw.lines)
+    ? raw.lines.map((l: any, i: number) => ({
+        id: l.id || l.lineId || i + 1,
+        invoiceId: id,
+        partId: l.partId || null,
+        description: l.description || l.partName || (l.lineType === 'LABOR' ? 'ค่าบริการ' : 'รายการ'),
+        qty: Number(l.qty || 1),
+        unitPrice: Number(l.unitPrice || l.price || 0),
+        lineTotal: Number(l.lineTotal || (Number(l.qty || 1) * Number(l.unitPrice || l.price || 0))),
+      }))
+    : [];
+
+  const payments = Array.isArray(raw.payments)
+    ? raw.payments.map((p: any) => ({
+        id: p.id || p.paymentId || Date.now(),
+        invoiceId: id,
+        payerType: p.payerType || 'CUSTOMER',
+        amount: Number(p.amount || 0),
+        method: p.method || p.paymentMethod || 'CASH',
+        paidAt: p.paidAt || new Date().toISOString(),
+        receiptNumber: p.receiptNumber || p.receiptNo || `RCP-${id}`,
+      }))
+    : raw.payment
+    ? [
+        {
+          id: raw.payment.id || raw.payment.paymentId || Date.now(),
+          invoiceId: id,
+          payerType: raw.payment.payerType || 'CUSTOMER',
+          amount: Number(raw.payment.amount || 0),
+          method: raw.payment.method || raw.payment.paymentMethod || 'CASH',
+          paidAt: raw.payment.paidAt || new Date().toISOString(),
+          receiptNumber: raw.payment.receiptNumber || raw.payment.receiptNo || `RCP-${id}`,
+        },
+      ]
+    : [];
+
+  return {
+    id,
+    invoiceNumber,
+    repairId: raw.repairId,
+    roNumber: raw.roNumber || (raw.repairId ? `RO-${raw.repairId}` : undefined),
+    customerName: raw.customerName || raw.saleOrder?.customerName || 'ลูกค้าทั่วไป (Walk-in)',
+    customerPhone: raw.customerPhone || raw.saleOrder?.customerPhone || '-',
+    subtotal,
+    vatAmount,
+    totalWithVat,
+    insuranceCovered,
+    customerDue,
+    status: raw.status || (payments.length > 0 ? 'PAID' : 'ISSUED'),
+    issuedAt: raw.issuedAt || new Date().toISOString(),
+    lines,
+    payments,
+  };
+}
+
 // ---------------- SALES & COUNTER API ----------------
 export async function apiCompleteCounterSale(
   customerName: string,
@@ -506,10 +811,30 @@ export async function apiCompleteCounterSale(
   paymentMethod: string
 ): Promise<{ invoice: Invoice }> {
   try {
-    return await request<{ invoice: Invoice }>('/sales/complete', {
+    const res = await request<any>('/sales/complete', {
       method: 'POST',
-      body: JSON.stringify({ customerName, customerPhone, items, paymentMethod }),
+      body: JSON.stringify({
+        customerName: customerName || 'ลูกค้าหน้าร้าน (Walk-in)',
+        customerPhone: customerPhone || '-',
+        items,
+        lines: items,
+        paymentMethod,
+        amount: items.reduce((acc, it) => acc + it.qty * it.unitPrice, 0),
+      }),
     });
+    if (res && res.invoice) {
+      const inv = mapInvoice({
+        ...res.invoice,
+        saleOrder: res.saleOrder,
+        payment: res.payment,
+        customerName,
+        customerPhone,
+      });
+      return { invoice: inv };
+    } else if (res && (res.invoiceId || res.id)) {
+      return { invoice: mapInvoice(res) };
+    }
+    return { invoice: mapInvoice(res) };
   } catch {
     const subtotal = items.reduce((acc, it) => acc + it.qty * it.unitPrice, 0);
     const vat = +(subtotal * 0.07).toFixed(2);
@@ -577,7 +902,8 @@ export async function apiCompleteCounterSale(
 // ---------------- INVOICES & BILLING API ----------------
 export async function apiGetInvoices(): Promise<Invoice[]> {
   try {
-    return await request<Invoice[]>('/invoices');
+    const list = await request<any[]>('/invoices');
+    return Array.isArray(list) ? list.map(mapInvoice) : [];
   } catch {
     return localStore.getInvoices();
   }
@@ -585,7 +911,12 @@ export async function apiGetInvoices(): Promise<Invoice[]> {
 
 export async function apiGetInvoiceById(id: number): Promise<Invoice | null> {
   try {
-    return await request<Invoice>(`/invoices/${id}`);
+    const inv = await request<any>(`/invoices/${id}`);
+    if (!inv) return null;
+    if (inv.invoice) {
+      return mapInvoice({ ...inv.invoice, lines: inv.lines });
+    }
+    return mapInvoice(inv);
   } catch {
     return localStore.getInvoices().find((x) => x.id === id) || null;
   }
@@ -593,10 +924,14 @@ export async function apiGetInvoiceById(id: number): Promise<Invoice | null> {
 
 export async function apiCreateInvoiceForRepair(repairId: number): Promise<Invoice> {
   try {
-    return await request<Invoice>('/invoices', {
+    const res = await request<any>('/invoices', {
       method: 'POST',
       body: JSON.stringify({ repairId }),
     });
+    if (res && res.invoice) {
+      return mapInvoice({ ...res.invoice, lines: res.lines });
+    }
+    return mapInvoice(res);
   } catch {
     const ro = localStore.getRepairs().find((x) => x.id === repairId);
     if (!ro) throw new Error('Repair order not found');
@@ -660,7 +995,7 @@ export async function apiPayInvoice(
   try {
     return await request(`/invoices/${invoiceId}/pay`, {
       method: 'POST',
-      body: JSON.stringify({ amount, method, payerType }),
+      body: JSON.stringify({ amount, method, payerType, paymentMethod: method }),
     });
   } catch {
     const inv = localStore.getInvoices().find((x) => x.id === invoiceId);
@@ -698,7 +1033,16 @@ export async function apiPayInvoice(
 // ---------------- ADMIN & SETTINGS API ----------------
 export async function apiGetBays(): Promise<RepairBay[]> {
   try {
-    return await request<RepairBay[]>('/admin/bays');
+    const list = await request<any[]>('/admin/bays');
+    return (list || []).map((b) => ({
+      id: Number(b.id || b.bayId),
+      bayNumber: b.bayNumber || b.name || `BAY-${b.id || b.bayId}`,
+      name: b.name || b.bayNumber || `ช่องซ่อม ${b.id || b.bayId}`,
+      bayType: b.bayType || 'GENERAL',
+      isOccupied: Boolean(b.isOccupied || b.currentRoId || b.currentRepairId),
+      isActive: b.isActive ?? true,
+      currentRepairId: b.currentRepairId || b.currentRoId || null,
+    }));
   } catch {
     return localStore.getBays();
   }
@@ -722,7 +1066,14 @@ export async function apiUpdateBay(id: number, data: Partial<RepairBay>): Promis
 
 export async function apiGetUsers(): Promise<User[]> {
   try {
-    return await request<User[]>('/admin/users');
+    const list = await request<any[]>('/admin/users');
+    return (list || []).map((u) => ({
+      id: u.id || u.userId,
+      username: u.username,
+      fullName: u.fullName || u.displayName || u.username,
+      role: u.role,
+      isActive: u.isActive ?? true,
+    }));
   } catch {
     return localStore.getUsers();
   }
@@ -770,7 +1121,20 @@ export async function apiGetRepairSummaryReport(
     if (endDate) params.set('endDate', endDate);
     if (status) params.set('status', status);
     if (mechanicId) params.set('mechanicId', String(mechanicId));
-    return await request<RepairSummaryReport>(`/reports/repair-summary?${params.toString()}`);
+    const res = await request<any>(`/reports/repair-summary?${params.toString()}`);
+    return {
+      startDate: res.startDate || startDate || '',
+      endDate: res.endDate || endDate || '',
+      totalJobs: res.totalJobs ?? res.totalOrders ?? 0,
+      completedJobs: res.completedJobs ?? res.completedOrders ?? 0,
+      pendingJobs: res.pendingJobs ?? (res.totalOrders ? res.totalOrders - (res.completedOrders || 0) : 0),
+      cancelledJobs: res.cancelledJobs ?? 0,
+      avgTurnaroundHours: res.avgTurnaroundHours ?? 0,
+      totalLaborRevenue: res.totalLaborRevenue ?? 0,
+      totalPartsRevenue: res.totalPartsRevenue ?? 0,
+      totalRevenue: res.totalRevenue ?? 0,
+      records: Array.isArray(res.records) ? res.records.map(mapRepairOrder) : (Array.isArray(res.items) ? res.items.map(mapRepairOrder) : []),
+    };
   } catch {
     let list = localStore.getRepairs();
     if (status && status !== 'ALL') {
@@ -813,7 +1177,18 @@ export async function apiGetInventoryUsageReport(
     const params = new URLSearchParams();
     if (categoryFilter) params.set('category', categoryFilter);
     if (statusFilter) params.set('status', statusFilter);
-    return await request<InventoryUsageReport>(`/reports/inventory-usage?${params.toString()}`);
+    const res = await request<any>(`/reports/inventory-usage?${params.toString()}`);
+    return {
+      generatedAt: res.generatedAt || new Date().toISOString(),
+      categoryFilter: res.categoryFilter || categoryFilter,
+      statusFilter: res.statusFilter || statusFilter,
+      totalValuation: res.totalValuation ?? 0,
+      totalItems: res.totalItems ?? res.totalParts ?? 0,
+      lowStockItemsCount: res.lowStockItemsCount ?? 0,
+      outOfStockItemsCount: res.outOfStockItemsCount ?? 0,
+      topConsumedParts: Array.isArray(res.topConsumedParts) ? res.topConsumedParts : [],
+      records: Array.isArray(res.records) ? res.records : (Array.isArray(res.items) ? res.items : []),
+    };
   } catch {
     let parts = localStore.getParts();
     if (categoryFilter && categoryFilter !== 'ALL') {

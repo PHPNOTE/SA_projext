@@ -56,9 +56,24 @@ export default function BillingPage() {
     }
   };
 
+  const isInvoicePaid = (inv: Invoice) => {
+    const totalPaid = (inv.payments || [])
+      .filter((p) => p.payerType === 'CUSTOMER')
+      .reduce((acc, p) => acc + p.amount, 0);
+    return (inv.status as string) === 'PAID' || totalPaid >= inv.customerDue;
+  };
+
+  const isInvoiceCancelled = (inv: Invoice) => {
+    return inv.status === 'VOID' || (inv.status as string) === 'CANCELLED';
+  };
+
   const handleOpenPay = (inv: Invoice) => {
+    if (isInvoicePaid(inv) || isInvoiceCancelled(inv)) {
+      alert('ไม่สามารถรับชำระเงินสำหรับใบแจ้งหนี้ที่ชำระแล้วหรือถูกยกเลิก');
+      return;
+    }
     setSelectedInvoice(inv);
-    const paidCustomer = inv.payments
+    const paidCustomer = (inv.payments || [])
       .filter((p) => p.payerType === 'CUSTOMER')
       .reduce((acc, p) => acc + p.amount, 0);
     const remaining = Math.max(0, +(inv.customerDue - paidCustomer).toFixed(2));
@@ -69,6 +84,10 @@ export default function BillingPage() {
 
   const handleConfirmPayment = async () => {
     if (!selectedInvoice) return;
+    if (isInvoicePaid(selectedInvoice) || isInvoiceCancelled(selectedInvoice)) {
+      alert('ไม่สามารถรับชำระเงินสำหรับใบแจ้งหนี้ที่ชำระแล้วหรือถูกยกเลิก');
+      return;
+    }
     try {
       const res = await apiPayInvoice(selectedInvoice.id, payAmount, payMethod, payerType);
       setPaymentSuccess(`บันทึกการชำระเงินสำเร็จ! เลขที่ใบเสร็จรับเงิน: ${res.receiptNumber}`);
@@ -172,10 +191,8 @@ export default function BillingPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {invoices.map((inv) => {
-                const totalPaidCustomer = inv.payments
-                  .filter((p) => p.payerType === 'CUSTOMER')
-                  .reduce((acc, p) => acc + p.amount, 0);
-                const isPaidFull = totalPaidCustomer >= inv.customerDue;
+                const isPaidFull = isInvoicePaid(inv);
+                const isCancelled = isInvoiceCancelled(inv);
 
                 return (
                   <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
@@ -191,7 +208,9 @@ export default function BillingPage() {
                       ฿{inv.customerDue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                     </td>
                     <td className="py-3.5 px-4 text-center">
-                      {isPaidFull ? (
+                      {isCancelled ? (
+                        <Badge variant="danger">ยกเลิก ({inv.status})</Badge>
+                      ) : isPaidFull ? (
                         <Badge variant="success">ชำระครบแล้ว</Badge>
                       ) : (
                         <Badge variant="warning">รอชำระเงิน</Badge>
@@ -199,7 +218,7 @@ export default function BillingPage() {
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex items-center justify-center gap-1.5">
-                        {!isPaidFull && (
+                        {!isPaidFull && !isCancelled && (
                           <button
                             onClick={() => handleOpenPay(inv)}
                             className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"
@@ -378,6 +397,13 @@ export default function BillingPage() {
               />
             </div>
 
+            {selectedInvoice && (isInvoicePaid(selectedInvoice) || isInvoiceCancelled(selectedInvoice)) && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>ใบแจ้งหนี้นี้ชำระครบแล้วหรืออยู่ในสถานะ {selectedInvoice.status} — ไม่สามารถรับชำระเงินได้</span>
+              </div>
+            )}
+
             <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
               <button
                 onClick={() => setPayModalOpen(false)}
@@ -387,7 +413,8 @@ export default function BillingPage() {
               </button>
               <button
                 onClick={handleConfirmPayment}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-500/20"
+                disabled={!selectedInvoice || isInvoicePaid(selectedInvoice) || isInvoiceCancelled(selectedInvoice)}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 ยืนยันการรับเงินและปิดงานซ่อม
               </button>

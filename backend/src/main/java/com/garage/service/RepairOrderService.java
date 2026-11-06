@@ -160,6 +160,17 @@ public class RepairOrderService {
             throw new ValidationException("Decision must be APPROVED or DECLINED");
         }
 
+        // State Machine Guards
+        if (ro.status() == RepairOrderStatus.COMPLETED || ro.status() == RepairOrderStatus.CANCELLED) {
+            throw new InvalidStatusException("Cannot decide estimate for " + ro.status() + " repair order");
+        }
+        if (ro.status() != RepairOrderStatus.AWAITING_APPROVAL && ro.status() != RepairOrderStatus.IN_DIAGNOSIS) {
+            throw new InvalidStatusException("Repair order must be awaiting approval or in diagnosis to decide estimate, current status is " + ro.status());
+        }
+        if (est.status() != EstimateStatus.PENDING) {
+            throw new InvalidStatusException("Estimate is already decided: " + est.status());
+        }
+
         if ("APPROVED".equalsIgnoreCase(decision)) {
             // Insurance Gatekeeper Check
             boolean docs = insuranceDocsReceived != null ? insuranceDocsReceived : ro.insuranceDocsReceived();
@@ -263,11 +274,85 @@ public class RepairOrderService {
     }
 
     @Transactional
+    public EstimateDecisionResponse processRepairApproval(Long repairId, String decision, Boolean insuranceDocsReceived, Long userId) {
+        RepairOrder ro = repairOrderRepository.findById(repairId)
+            .orElseThrow(() -> new ResourceNotFoundException("Repair order not found: " + repairId));
+
+        if (ro.status() == RepairOrderStatus.COMPLETED || ro.status() == RepairOrderStatus.CANCELLED) {
+            throw new InvalidStatusException("Cannot approve " + ro.status() + " repair order");
+        }
+        if (ro.status() != RepairOrderStatus.AWAITING_APPROVAL && ro.status() != RepairOrderStatus.IN_DIAGNOSIS) {
+            throw new InvalidStatusException("Repair order must be awaiting approval or in diagnosis to approve, current status is " + ro.status());
+        }
+
+        Estimate target = estimateRepository.findByRepairId(repairId).stream()
+            .filter(e -> e.status() == EstimateStatus.PENDING)
+            .max(java.util.Comparator.comparingInt(Estimate::revisionNo))
+            .or(() -> estimateRepository.findLatestRevision(repairId))
+            .orElseThrow(() -> new ResourceNotFoundException("Estimate not found for repair: " + repairId));
+
+        return processEstimateDecision(target.estimateId(), decision, insuranceDocsReceived, userId);
+    }
+
+    @Transactional
+    public RepairOrder updateRepairStatus(Long repairId, String statusStr, String note, Long userId) {
+        RepairOrder ro = repairOrderRepository.findById(repairId)
+            .orElseThrow(() -> new ResourceNotFoundException("Repair order not found: " + repairId));
+
+        if (ro.status() == RepairOrderStatus.COMPLETED || ro.status() == RepairOrderStatus.CANCELLED) {
+            throw new InvalidStatusException("Cannot update status of " + ro.status() + " repair order");
+        }
+
+        RepairOrderStatus targetStatus;
+        try {
+            targetStatus = RepairOrderStatus.valueOf(statusStr);
+        } catch (IllegalArgumentException e) {
+            if ("QC_PENDING".equals(statusStr)) {
+                targetStatus = RepairOrderStatus.QC;
+            } else {
+                throw new ValidationException("Invalid status: " + statusStr);
+            }
+        }
+
+        if (ro.status() == targetStatus) {
+            return ro;
+        }
+
+        if (targetStatus == RepairOrderStatus.QC && ro.status() != RepairOrderStatus.IN_REPAIR) {
+            throw new InvalidStatusException("Cannot move to QC from " + ro.status());
+        }
+        if (targetStatus == RepairOrderStatus.IN_REPAIR && ro.status() != RepairOrderStatus.ON_HOLD && ro.status() != RepairOrderStatus.QC) {
+            throw new InvalidStatusException("Cannot transition to IN_REPAIR from " + ro.status());
+        }
+
+        RepairOrderStatus fromStatus = ro.status();
+        Long bayId = ro.bayId();
+        if (targetStatus == RepairOrderStatus.AWAITING_PAYMENT || targetStatus == RepairOrderStatus.COMPLETED || targetStatus == RepairOrderStatus.CANCELLED) {
+            bayId = null;
+        }
+
+        RepairOrder updated = new RepairOrder(
+            ro.repairId(), ro.ticketNo(), ro.vehicleId(), ro.complaint(), ro.queueClass(), ro.priorityReason(),
+            ro.queuedAt(), targetStatus, ro.holdReason(), bayId, ro.mechanicId(), ro.insurerName(), ro.claimNo(),
+            ro.insuranceDocsReceived(), ro.insuranceCoveredAmount(), ro.createdBy(), ro.createdAt(),
+            targetStatus == RepairOrderStatus.COMPLETED ? Instant.now() : ro.closedAt()
+        );
+        repairOrderRepository.update(updated);
+
+        statusLogRepository.save(new StatusLog(
+            null, EntityType.REPAIR, ro.repairId(), fromStatus.name(), targetStatus.name(), userId,
+            note != null ? note : ("Status changed to " + targetStatus.name()), Instant.now()
+        ));
+
+        return updated;
+    }
+
+    @Transactional
     public RepairOrder submitQC(Long repairId, Boolean passed, Long userId) {
         RepairOrder ro = repairOrderRepository.findById(repairId)
             .orElseThrow(() -> new ResourceNotFoundException("Repair order not found: " + repairId));
 
-        if (ro.status() != RepairOrderStatus.IN_REPAIR) {
+        if (ro.status() != RepairOrderStatus.IN_REPAIR && ro.status() != RepairOrderStatus.QC) {
             throw new InvalidStatusException("Cannot submit QC from status " + ro.status());
         }
 
@@ -305,7 +390,7 @@ public class RepairOrderService {
             repairOrderRepository.update(updatedRo);
 
             statusLogRepository.save(new StatusLog(
-                null, EntityType.REPAIR, ro.repairId(), "IN_REPAIR", "QC", userId, "QC Passed", Instant.now()
+                null, EntityType.REPAIR, ro.repairId(), ro.status().name(), "QC", userId, "QC Passed", Instant.now()
             ));
             statusLogRepository.save(new StatusLog(
                 null, EntityType.REPAIR, ro.repairId(), "QC", "AWAITING_PAYMENT", userId,
@@ -316,7 +401,7 @@ public class RepairOrderService {
         } else {
             // QC Failed - Rework Required
             statusLogRepository.save(new StatusLog(
-                null, EntityType.REPAIR, ro.repairId(), "IN_REPAIR", "IN_REPAIR", userId,
+                null, EntityType.REPAIR, ro.repairId(), ro.status().name(), "IN_REPAIR", userId,
                 "QC Failed - Rework Required", Instant.now()
             ));
             return ro;

@@ -336,6 +336,10 @@ public class QueueService {
         RepairOrder ro = repairOrderRepository.findById(repairId)
             .orElseThrow(() -> new ResourceNotFoundException("Repair order not found: " + repairId));
 
+        if (ro.status() == RepairOrderStatus.COMPLETED || ro.status() == RepairOrderStatus.CANCELLED) {
+            throw new InvalidStatusException("Cannot override priority for " + ro.status() + " repair order");
+        }
+
         RepairOrder updated = new RepairOrder(
             ro.repairId(),
             ro.ticketNo(),

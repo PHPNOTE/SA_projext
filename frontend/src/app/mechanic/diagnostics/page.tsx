@@ -13,6 +13,7 @@ import {
   Car,
   User,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
 
@@ -40,9 +41,11 @@ export default function DiagnosticsPage() {
       setRepairs(roList);
       setParts(pList);
 
-      const diagnosing = roList.find((r) => r.status === 'IN_DIAGNOSIS' || r.status === 'QUEUED');
-      if (diagnosing && !selectedRoId) {
-        setSelectedRoId(diagnosing.id);
+      const diagnosing = roList.find((r) => r.status === 'IN_DIAGNOSIS' || r.status === 'IN_REPAIR');
+      const fallback = roList.find((r) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED');
+      if (!selectedRoId) {
+        if (diagnosing) setSelectedRoId(diagnosing.id);
+        else if (fallback) setSelectedRoId(fallback.id);
       }
     } finally {
       setLoading(false);
@@ -179,11 +182,16 @@ export default function DiagnosticsPage() {
                 onChange={(e) => setSelectedRoId(Number(e.target.value))}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium"
               >
-                {repairs.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.roNumber} • {r.licensePlate} ({r.vehicleModel}) [{r.status}]
-                  </option>
-                ))}
+                {repairs
+                  .filter((r) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED')
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.roNumber} • {r.licensePlate} ({r.vehicleModel}) [{r.status}]
+                    </option>
+                  ))}
+                {repairs.filter((r) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED').length === 0 && (
+                  <option value="" disabled>ไม่มีใบสั่งซ่อมที่รอการตรวจเช็คหรือประเมินราคา</option>
+                )}
               </select>
             </div>
 
@@ -360,14 +368,24 @@ export default function DiagnosticsPage() {
               </div>
             </div>
 
+            {/* Warning if terminal or not eligible */}
+            {selectedRo && (selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED') && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>งานซ่อมอยู่ในสถานะ {selectedRo.status} — ไม่สามารถประเมินราคาได้</span>
+              </div>
+            )}
+
             {/* Submit Action */}
             <button
               type="submit"
-              disabled={saving}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-transform active:scale-[0.98] disabled:opacity-50 text-xs"
+              disabled={saving || !selectedRo || selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED'}
+              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-transform active:scale-[0.98] disabled:opacity-50 text-xs disabled:cursor-not-allowed"
             >
               {saving ? (
                 <span>กำลังบันทึกใบประเมินราคา...</span>
+              ) : selectedRo && (selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED') ? (
+                <span>ไม่สามารถเสนอราคาได้ (สถานะ: {selectedRo.status})</span>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />

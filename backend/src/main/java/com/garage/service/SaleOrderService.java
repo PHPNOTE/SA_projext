@@ -308,4 +308,22 @@ public class SaleOrderService {
 
         return saleOrderRepository.findById(saleId).orElseThrow();
     }
+
+    @Transactional
+    public CompleteSaleResponse directCounterSale(SingleShotSaleRequest req, Long userId) {
+        if (req == null || req.items() == null || req.items().isEmpty()) {
+            throw new ValidationException("Sale items required");
+        }
+
+        Long customerId = req.customerId() != null ? req.customerId() : 6L;
+        SaleResponse quote = createSaleQuote(customerId, req.items(), userId);
+        SaleOrder confirmed = confirmSale(quote.saleOrder().saleId(), userId);
+
+        BigDecimal subtotal = quote.lines().stream()
+            .map(l -> l.unitPrice().multiply(BigDecimal.valueOf(l.qty())))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal amountPaid = req.amountPaid() != null ? req.amountPaid() : subtotal;
+
+        return completeSale(confirmed.saleId(), amountPaid, req.paymentMethod(), userId);
+    }
 }

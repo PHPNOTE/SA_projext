@@ -465,4 +465,69 @@ public class StockService {
             .flatMap(est -> repairOrderRepository.findById(est.repairId()))
             .orElse(null);
     }
+
+    public List<PartRequestDto> getAllRequisitions() {
+        List<PartRequest> requests = partRequestRepository.findAll();
+        return requests.stream()
+            .map(this::toPartRequestDto)
+            .toList();
+    }
+
+    public PartRequestDto toPartRequestDto(PartRequest pr) {
+        Part part = partRepository.findById(pr.partId()).orElse(null);
+        RepairOrder ro = getParentRepairOrder(pr);
+        String reqNo = "REQ-" + (ro != null ? ro.ticketNo() : "SO") + "-" + pr.requestId();
+        return new PartRequestDto(
+            pr.requestId(),
+            pr.requestId(),
+            reqNo,
+            ro != null ? ro.repairId() : null,
+            pr.estimateLineId(),
+            pr.saleOrderLineId(),
+            pr.partId(),
+            part != null ? part.sku() : "PART-" + pr.partId(),
+            part != null ? part.name() : "อะไหล่",
+            pr.qty(),
+            pr.qty(),
+            pr.qtyIssued(),
+            pr.qtyReturned(),
+            pr.status().name(),
+            pr.createdAt()
+        );
+    }
+
+    @Transactional
+    public PartRequestDto createPartRequest(Long repairId, Long partId, int qty, Long userId) {
+        if (qty <= 0) {
+            throw new ValidationException("Requested quantity must be positive");
+        }
+        Part part = partRepository.findById(partId)
+            .orElseThrow(() -> new ResourceNotFoundException("Part not found: " + partId));
+        RepairOrder ro = repairOrderRepository.findById(repairId)
+            .orElseThrow(() -> new ResourceNotFoundException("Repair order not found: " + repairId));
+
+        Estimate estimate = estimateRepository.findByRepairId(repairId).stream()
+            .max(Comparator.comparingInt(Estimate::revisionNo))
+            .orElseGet(() -> {
+                Estimate newEst = new Estimate(null, repairId, 1, Estimate.EstimateStatus.APPROVED, "Auto estimate for parts requisition", userId != null ? userId : 3L, Instant.now());
+                return estimateRepository.save(newEst);
+            });
+
+        EstimateLine el = new EstimateLine(null, estimate.estimateId(), EstimateLine.EstimateLineType.PART, partId, part.name(), qty, part.sellPrice());
+        EstimateLine savedLine = estimateLineRepository.save(el);
+
+        int available = part.onHand() - part.reserved();
+        PartRequest.PartRequestStatus status;
+        if (available >= qty) {
+            status = PartRequest.PartRequestStatus.RESERVED;
+            executeStockMovement(partId, MovementType.RESERVE, 0, qty, null, null, "Reserved for Repair #" + ro.ticketNo(), userId);
+        } else {
+            status = PartRequest.PartRequestStatus.BACKORDERED;
+        }
+
+        PartRequest pr = new PartRequest(null, savedLine.lineId(), null, partId, qty, 0, 0, status, Instant.now());
+        PartRequest savedPr = partRequestRepository.save(pr);
+
+        return toPartRequestDto(savedPr);
+    }
 }

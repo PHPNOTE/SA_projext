@@ -1,10 +1,13 @@
 package com.garage.model.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.jdbc.core.RowMapper;
 
 public record UserAccount(
     Long userId,
     String username,
+    @JsonIgnore
     String passwordHash,
     String displayName,
     UserRole role,
@@ -12,6 +15,16 @@ public record UserAccount(
 ) {
     public enum UserRole {
         FRONT_DESK, MECHANIC, WAREHOUSE, SALES, MANAGER
+    }
+
+    @JsonProperty("id")
+    public Long id() {
+        return userId;
+    }
+
+    @JsonProperty("fullName")
+    public String fullName() {
+        return displayName;
     }
 
     public static final RowMapper<UserAccount> ROW_MAPPER = (rs, rowNum) -> new UserAccount(

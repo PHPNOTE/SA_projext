@@ -37,10 +37,10 @@ public class EstimateController {
         return ResponseEntity.ok(response);
     }
 
-    @PostMapping({"/estimates/{id}/decision", "/repairs/{id}/approve"})
+    @PostMapping("/estimates/{id}/decision")
     public ResponseEntity<EstimateDecisionResponse> decideEstimate(
         @PathVariable Long id,
-        @RequestBody EstimateDecisionRequest req,
+        @RequestBody(required = false) EstimateDecisionRequest req,
         HttpServletRequest request
     ) {
         UserAccount user = resolveUser(request);
@@ -48,6 +48,20 @@ public class EstimateController {
         String decision = req != null && req.decision() != null ? req.decision() : "APPROVED";
         Boolean docsReceived = req != null ? req.insuranceDocsReceived() : null;
         EstimateDecisionResponse response = repairOrderService.processEstimateDecision(id, decision, docsReceived, userId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/repairs/{id}/approve")
+    public ResponseEntity<EstimateDecisionResponse> approveRepair(
+        @PathVariable Long id,
+        @RequestBody(required = false) EstimateDecisionRequest req,
+        HttpServletRequest request
+    ) {
+        UserAccount user = resolveUser(request);
+        Long userId = user != null ? user.userId() : 2L;
+        String decision = req != null && req.decision() != null ? req.decision() : "APPROVED";
+        Boolean docsReceived = req != null ? req.insuranceDocsReceived() : null;
+        EstimateDecisionResponse response = repairOrderService.processRepairApproval(id, decision, docsReceived, userId);
         return ResponseEntity.ok(response);
     }
 }

@@ -111,4 +111,25 @@ public class WarehouseController {
     public ResponseEntity<List<Part>> getLowStock() {
         return ResponseEntity.ok(stockService.getLowStockParts());
     }
+
+    @GetMapping({"/requisitions", "/warehouse/requisitions", "/warehouse/requests"})
+    public ResponseEntity<List<PartRequestDto>> getRequisitions() {
+        return ResponseEntity.ok(stockService.getAllRequisitions());
+    }
+
+    @PostMapping({"/requisitions", "/warehouse/requisitions"})
+    public ResponseEntity<PartRequestDto> createRequisition(
+        @RequestBody CreatePartRequestInput req,
+        HttpServletRequest request
+    ) {
+        UserAccount user = resolveUser(request);
+        Long userId = user != null ? user.userId() : 3L;
+        PartRequestDto dto = stockService.createPartRequest(
+            req != null ? req.repairId() : null,
+            req != null ? req.partId() : null,
+            req != null && req.qty() != null ? req.qty() : 1,
+            userId
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    }
 }

@@ -339,6 +339,27 @@ export class MockGarageServer {
     return { status: 200, body: { estimate: est, lines: savedLines } };
   }
 
+  handleRepairApprove(id, body, user) {
+    const repair = this.repairOrders.find(r => r.repairId === Number(id));
+    if (!repair) return { status: 404, body: { error: 'Repair order not found' } };
+
+    if (repair.status === 'COMPLETED' || repair.status === 'CANCELLED') {
+      return { status: 409, body: { error: `Cannot approve ${repair.status} repair order`, code: 'INVALID_STATUS' } };
+    }
+    if (!['AWAITING_APPROVAL', 'IN_DIAGNOSIS'].includes(repair.status)) {
+      return { status: 409, body: { error: `Repair order must be in AWAITING_APPROVAL status to approve, current status is ${repair.status}`, code: 'INVALID_STATUS' } };
+    }
+
+    const ests = this.estimates.filter(e => e.repairId === repair.repairId);
+    const target = ests.find(e => e.status === 'PENDING')
+      || ests.slice().sort((a, b) => b.revisionNo - a.revisionNo)[0];
+    if (!target) {
+      return { status: 404, body: { error: 'Estimate not found for repair order', code: 'NOT_FOUND' } };
+    }
+
+    return this.handleEstimateDecision(target.estimateId, body, user);
+  }
+
   // --- R4: Customer Decision & Insurance Gate (Algorithm 2) ---
   handleEstimateDecision(id, body, user) {
     const est = this.estimates.find(e => e.estimateId === Number(id));
@@ -346,7 +367,18 @@ export class MockGarageServer {
     const repair = this.repairOrders.find(r => r.repairId === est.repairId);
     if (!repair) return { status: 404, body: { error: 'Repair order not found' } };
 
-    const { decision, insuranceDocsReceived } = body; // 'APPROVED' or 'DECLINED'
+    // Invariant Guard: Prevent mutating terminal or non-awaiting repair orders
+    if (repair.status === 'COMPLETED' || repair.status === 'CANCELLED') {
+      return { status: 409, body: { error: `Cannot decide estimate for ${repair.status} repair order`, code: 'INVALID_STATUS' } };
+    }
+    if (!['AWAITING_APPROVAL', 'IN_DIAGNOSIS'].includes(repair.status)) {
+      return { status: 409, body: { error: `Repair order must be awaiting approval, current status is ${repair.status}`, code: 'INVALID_STATUS' } };
+    }
+    if (est.status !== 'PENDING') {
+      return { status: 409, body: { error: `Estimate is already decided: ${est.status}`, code: 'INVALID_STATUS' } };
+    }
+
+    const { decision, insuranceDocsReceived } = body || {}; // 'APPROVED' or 'DECLINED'
     if (!['APPROVED', 'DECLINED'].includes(decision)) {
       return { status: 400, body: { error: 'Decision must be APPROVED or DECLINED', code: 'VALIDATION_ERROR' } };
     }

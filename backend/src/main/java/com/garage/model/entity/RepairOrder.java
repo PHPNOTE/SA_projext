@@ -1,5 +1,6 @@
 package com.garage.model.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.jdbc.core.RowMapper;
 
 import java.math.BigDecimal;
@@ -31,6 +32,31 @@ public record RepairOrder(
 
     public enum RepairOrderStatus {
         QUEUED, IN_DIAGNOSIS, AWAITING_APPROVAL, IN_REPAIR, ON_HOLD, QC, AWAITING_PAYMENT, COMPLETED, CANCELLED
+    }
+
+    @JsonProperty("id")
+    public Long id() {
+        return repairId;
+    }
+
+    @JsonProperty("roNumber")
+    public String roNumber() {
+        return ticketNo;
+    }
+
+    @JsonProperty("ticketNumber")
+    public String ticketNumber() {
+        return ticketNo;
+    }
+
+    @JsonProperty("symptoms")
+    public String symptoms() {
+        return complaint;
+    }
+
+    @JsonProperty("insuranceClaimNo")
+    public String insuranceClaimNo() {
+        return claimNo;
     }
 
     public static final RowMapper<RepairOrder> ROW_MAPPER = (rs, rowNum) -> new RepairOrder(
