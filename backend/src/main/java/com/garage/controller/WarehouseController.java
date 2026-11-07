@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
@@ -21,8 +22,12 @@ public class WarehouseController {
     private final StockService stockService;
     private final PartRepository partRepository;
     private final AuthService authService;
+    private final com.garage.repository.UserAccountRepository userAccountRepository;
+    private final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-    public WarehouseController(StockService stockService, PartRepository partRepository, AuthService authService) {
+    public WarehouseController(StockService stockService, PartRepository partRepository, AuthService authService,
+                               com.garage.repository.UserAccountRepository userAccountRepository) {
+        this.userAccountRepository = userAccountRepository;
         this.stockService = stockService;
         this.partRepository = partRepository;
         this.authService = authService;
@@ -45,6 +50,14 @@ public class WarehouseController {
         boolean exists = req != null && req.sku() != null && partRepository.findBySku(req.sku().trim()).isPresent();
         Part part = stockService.upsertPart(req, userId);
         return ResponseEntity.status(exists ? HttpStatus.OK : HttpStatus.CREATED).body(part);
+    }
+
+    @DeleteMapping({"/warehouse/parts/{id}", "/parts/{id}"})
+    public ResponseEntity<Map<String, Object>> deletePart(@PathVariable Long id, HttpServletRequest request) {
+        UserAccount user = resolveUser(request);
+        Long userId = user != null ? user.userId() : 5L;
+        stockService.deletePart(id, userId);
+        return ResponseEntity.ok(Map.of("message", "Part " + id + " deleted"));
     }
 
     @GetMapping({"/warehouse/parts", "/parts"})
@@ -100,11 +113,24 @@ public class WarehouseController {
     }
 
     @GetMapping({"/warehouse/ledger", "/inventory/ledger", "/inventory/movements"})
-    public ResponseEntity<List<StockMovement>> getLedger(
+    public ResponseEntity<List<java.util.Map<String, Object>>> getLedger(
         @RequestParam(required = false) Long partId,
         @RequestParam(required = false) String movementType
     ) {
-        return ResponseEntity.ok(stockService.getLedger(partId, movementType));
+        java.util.Map<Long, Part> parts = new java.util.HashMap<>();
+        java.util.Map<Long, String> users = new java.util.HashMap<>();
+        List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        for (StockMovement mv : stockService.getLedger(partId, movementType)) {
+            java.util.Map<String, Object> m = new java.util.LinkedHashMap<>(mapper.convertValue(mv, new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {}));
+            Part part = parts.computeIfAbsent(mv.partId(), id -> partRepository.findById(id).orElse(null));
+            if (part != null) { m.put("partCode", part.sku()); m.put("partName", part.name()); }
+            if (mv.userId() != null) {
+                String name = users.computeIfAbsent(mv.userId(), id -> userAccountRepository.findById(id).map(u -> u.fullName()).orElse(null));
+                if (name != null) m.put("userName", name);
+            }
+            out.add(m);
+        }
+        return ResponseEntity.ok(out);
     }
 
     @GetMapping({"/warehouse/low-stock", "/parts/low-stock"})

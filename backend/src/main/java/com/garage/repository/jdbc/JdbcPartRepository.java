@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
 import java.util.Map;
@@ -118,5 +119,15 @@ public class JdbcPartRepository implements PartRepository {
     public long count() {
         Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM part", Long.class);
         return count != null ? count : 0L;
+    }
+
+    @Override
+    public boolean deleteIfUnused(Long id) {
+        String sql = "DELETE FROM part WHERE part_id = :id AND NOT EXISTS (SELECT 1 FROM stock_movement WHERE part_id = :id)";
+        try {
+            return namedJdbc.update(sql, Map.of("id", id)) > 0;
+        } catch (DataIntegrityViolationException e) {
+            return false;
+        }
     }
 }

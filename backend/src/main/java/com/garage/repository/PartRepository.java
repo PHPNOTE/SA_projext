@@ -15,5 +15,6 @@ public interface PartRepository {
     List<Part> findAll();
     void updateStockCounters(Long partId, int newOnHand, int newReserved);
     void update(Part part);
+    boolean deleteIfUnused(Long partId);
     long count();
 }

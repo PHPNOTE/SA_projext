@@ -80,7 +80,7 @@ export default function PurchaseOrdersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-amber-600 uppercase tracking-wider">
-            <Truck className="w-4 h-4" /> แผนกคลังพัสดุ • Use Case W4 / W5
+            <Truck className="w-4 h-4" /> แผนกคลังพัสดุ • Use Case UC06 / UC13
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             สั่งซื้ออะไหล่และรับเข้าสต็อก (Purchase Orders & Receiving)
@@ -230,7 +230,7 @@ export default function PurchaseOrdersPage() {
                     if (selected) copy[idx].unitCost = selected.costPrice;
                     setPoLines(copy);
                   }}
-                  className="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                  className="flex-1 min-w-0 w-0 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
                 >
                   {parts.map((p) => (
                     <option key={p.id} value={p.id}>

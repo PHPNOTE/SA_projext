@@ -552,7 +552,7 @@ export async function apiIssueParts(requestId: number, partId: number, qty: numb
   try {
     return await request('/warehouse/issue', {
       method: 'POST',
-      body: JSON.stringify({ requestId, id: requestId, partId, qty }),
+      body: JSON.stringify({ requestId, partId, qty }),
     });
   } catch {
     localStore.updatePart(partId, -qty, -qty);
@@ -575,7 +575,7 @@ export async function apiReturnParts(requestId: number, partId: number, qty: num
   try {
     return await request('/warehouse/return', {
       method: 'POST',
-      body: JSON.stringify({ requestId, id: requestId, partId, qty, reason }),
+      body: JSON.stringify({ requestId, partId, qty, reason }),
     });
   } catch {
     localStore.updatePart(partId, qty, 0);
@@ -598,7 +598,7 @@ export async function apiAdjustStock(partId: number, deltaOnHand: number, reason
   try {
     return await request('/warehouse/adjust', {
       method: 'POST',
-      body: JSON.stringify({ partId, delta: deltaOnHand, deltaOnHand, reason }),
+      body: JSON.stringify({ partId, delta: deltaOnHand, reason }),
     });
   } catch {
     localStore.updatePart(partId, deltaOnHand, 0);
@@ -620,6 +620,7 @@ export async function apiAdjustStock(partId: number, deltaOnHand: number, reason
 export async function apiGetStockLedger(): Promise<StockMovement[]> {
   try {
     const list = await request<any[]>('/warehouse/ledger');
+    list.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || (b.movementId ?? 0) - (a.movementId ?? 0));
     return list.map((m) => ({
       id: m.id || m.movementId,
       partId: m.partId,
@@ -658,10 +659,12 @@ export async function apiGetPurchaseOrders(): Promise<PurchaseOrder[]> {
 
 export async function apiCreatePurchaseOrder(supplierName: string, lines: { partId: number; qtyOrdered: number; unitCost: number }[]): Promise<PurchaseOrder> {
   try {
-    return await request<PurchaseOrder>('/purchase-orders', {
+    const created: any = await request<any>('/purchase-orders', {
       method: 'POST',
       body: JSON.stringify({ supplierName, lines }),
     });
+    const poId = created?.purchaseOrder?.poId ?? created?.poId ?? created?.id;
+    return await request<PurchaseOrder>(`/purchase-orders/${poId}`);
   } catch {
     const count = localStore.getPurchaseOrders().length + 1;
     const totalCost = lines.reduce((acc, l) => acc + l.qtyOrdered * l.unitCost, 0);
@@ -695,7 +698,7 @@ export async function apiReceivePurchaseOrder(poId: number, receivedLines: { poL
   try {
     return await request(`/purchase-orders/${poId}/receive`, {
       method: 'POST',
-      body: JSON.stringify({ lines: receivedLines, receivedLines }),
+      body: JSON.stringify({ lines: receivedLines }),
     });
   } catch {
     const po = localStore.getPurchaseOrders().find((x) => x.id === poId);
@@ -995,7 +998,7 @@ export async function apiPayInvoice(
   try {
     return await request(`/invoices/${invoiceId}/pay`, {
       method: 'POST',
-      body: JSON.stringify({ amount, method, payerType, paymentMethod: method }),
+      body: JSON.stringify({ amount, method, payerType }),
     });
   } catch {
     const inv = localStore.getInvoices().find((x) => x.id === invoiceId);
@@ -1034,7 +1037,10 @@ export async function apiPayInvoice(
 export async function apiGetBays(): Promise<RepairBay[]> {
   try {
     const list = await request<any[]>('/admin/bays');
-    return (list || []).map((b) => ({
+    const repairs = await request<any[]>('/repairs').catch(() => [] as any[]);
+    const holding = ['IN_DIAGNOSIS', 'AWAITING_APPROVAL', 'IN_REPAIR', 'ON_HOLD', 'QC'];
+    const occupant = (bid: number) => repairs.find((r) => r.bayId === bid && holding.includes(r.status));
+    return (list || []).map((raw) => ({ ...raw, currentRepairId: raw.currentRepairId || occupant(Number(raw.id || raw.bayId))?.repairId })).map((b) => ({
       id: Number(b.id || b.bayId),
       bayNumber: b.bayNumber || b.name || `BAY-${b.id || b.bayId}`,
       name: b.name || b.bayNumber || `ช่องซ่อม ${b.id || b.bayId}`,
@@ -1235,4 +1241,21 @@ export async function apiGetInventoryUsageReport(
       records: filtered,
     };
   }
+}
+
+// ---- Delete operations (UC12 / UC15) : backend rejects records that still have history
+export async function apiDeletePart(id: number): Promise<any> {
+  return await request(`/warehouse/parts/${id}`, { method: 'DELETE' });
+}
+
+export async function apiDeleteBay(id: number): Promise<any> {
+  return await request(`/admin/bays/${id}`, { method: 'DELETE' });
+}
+
+export async function apiDeleteUser(id: number): Promise<any> {
+  return await request(`/admin/users/${id}`, { method: 'DELETE' });
+}
+
+export async function apiCreateBay(name: string): Promise<any> {
+  return await request('/admin/bays', { method: 'POST', body: JSON.stringify({ name }) });
 }

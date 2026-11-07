@@ -35,7 +35,7 @@ export default function BillingPage() {
     try {
       const [invs, roList] = await Promise.all([apiGetInvoices(), apiGetRepairs()]);
       setInvoices(invs);
-      const ready = roList.filter((r) => r.status === 'AWAITING_PAYMENT');
+      const ready = roList.filter((r) => r.status === 'AWAITING_PAYMENT' && !invs.some((i: any) => i.repairId === r.id && i.status !== 'VOID'));
       setReadyRepairs(ready);
     } finally {
       setLoading(false);
@@ -90,7 +90,7 @@ export default function BillingPage() {
     }
     try {
       const res = await apiPayInvoice(selectedInvoice.id, payAmount, payMethod, payerType);
-      setPaymentSuccess(`บันทึกการชำระเงินสำเร็จ! เลขที่ใบเสร็จรับเงิน: ${res.receiptNumber}`);
+      setPaymentSuccess(`บันทึกการชำระเงินสำเร็จ! เลขที่ใบเสร็จรับเงิน: ${res.receiptNumber ?? (res.payment ? `RCP-${String(res.payment.paymentId).padStart(4, "0")}` : "-")}`);
       setPayModalOpen(false);
       loadData();
     } catch (err: any) {
@@ -111,7 +111,7 @@ export default function BillingPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
-            <Receipt className="w-4 h-4" /> แผนกต้อนรับและการเงิน • Use Case R6
+            <Receipt className="w-4 h-4" /> แผนกต้อนรับและการเงิน • Use Case UC04 / UC05
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             ตรวจสอบและปิดงานซ่อมออกใบเสร็จ (Repair Billing & Settlement)

@@ -1,5 +1,6 @@
 package com.garage.service;
 
+import com.garage.util.DocNo;
 import com.garage.dto.SaleDtos.*;
 import com.garage.exception.GarageException.*;
 import com.garage.model.entity.*;
@@ -68,7 +69,7 @@ public class SaleOrderService {
             }
         }
 
-        String saleNo = "SO-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 900 + 100);
+        String saleNo = DocNo.next("SO", saleOrderRepository.count());
         SaleOrder sale = new SaleOrder(
             null,
             saleNo,
@@ -217,7 +218,7 @@ public class SaleOrderService {
             throw new InsufficientPaymentException("Payment amount " + amountPaid + " is less than subtotal " + subtotal);
         }
 
-        String invNo = "INV-SALE-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 900 + 100);
+        String invNo = DocNo.next("INV", invoiceRepository.count());
         Invoice invoice = new Invoice(
             null,
             invNo,

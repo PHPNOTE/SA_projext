@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setDefaultUser = (role: UserRole) => {
     const matched = INITIAL_USERS.find((u) => u.role === role) || INITIAL_USERS[1];
     setUser(matched);
-    const mockToken = `token-${role.toLowerCase()}-${Date.now()}`;
+    const mockToken = `mock-token-${matched.id}-${matched.role}`;
     setToken(mockToken);
     setStoredToken(mockToken);
     localStorage.setItem('garage_user', JSON.stringify(matched));
@@ -57,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await apiLogin(username, 'password123', role);
       setUser(res.user);
       setToken(res.token);
+      setStoredToken(res.token);
       localStorage.setItem('garage_user', JSON.stringify(res.user));
     } catch {
       setDefaultUser(role || 'FRONT_DESK');
@@ -72,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isActive: true,
     };
     setUser(matched);
-    const mockToken = `token-${newRole.toLowerCase()}-${Date.now()}`;
+    const mockToken = `mock-token-${matched.id}-${matched.role}`;
     setToken(mockToken);
     setStoredToken(mockToken);
     localStorage.setItem('garage_user', JSON.stringify(matched));

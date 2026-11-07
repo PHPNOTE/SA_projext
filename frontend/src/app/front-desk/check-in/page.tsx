@@ -65,7 +65,7 @@ export default function CheckInPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
-            <ClipboardList className="w-4 h-4" /> แผนกต้อนรับ • Use Case R1
+            <ClipboardList className="w-4 h-4" /> แผนกต้อนรับ • Use Case UC01
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             ลงทะเบียนรับรถและเปิดคิวบริการ (Customer & Vehicle Check-In)

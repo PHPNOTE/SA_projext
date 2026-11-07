@@ -1,5 +1,6 @@
 package com.garage.service;
 
+import com.garage.util.DocNo;
 import com.garage.dto.WarehouseDtos.*;
 import com.garage.exception.GarageException.*;
 import com.garage.model.entity.*;
@@ -117,6 +118,7 @@ public class StockService {
                 existing.isActive()
             );
             partRepository.update(updated);
+            logPart(updated.partId(), "UPDATED", userId, "แก้ไขข้อมูลอะไหล่และราคา");
             return updated;
         }).orElseGet(() -> {
             Part newPart = new Part(
@@ -129,8 +131,24 @@ public class StockService {
                 reorderLevel,
                 true
             );
-            return partRepository.save(newPart);
+            Part saved = partRepository.save(newPart);
+            logPart(saved.partId(), "CREATED", userId, "เพิ่มรายการอะไหล่ใหม่");
+            return saved;
         });
+    }
+
+    @Transactional
+    public void deletePart(Long partId, Long userId) {
+        Part part = partRepository.findById(partId)
+            .orElseThrow(() -> new ResourceNotFoundException("Part not found: " + partId));
+        if (!partRepository.deleteIfUnused(partId)) {
+            throw new ValidationException("Cannot delete part with stock movements or document references; deactivate it instead");
+        }
+        logPart(partId, "DELETED", userId, "ลบรายการอะไหล่ " + part.sku());
+    }
+
+    private void logPart(Long partId, String action, Long userId, String note) {
+        statusLogRepository.save(new StatusLog(null, EntityType.PART, partId, null, action, userId, note, Instant.now()));
     }
 
     @Transactional
@@ -237,6 +255,8 @@ public class StockService {
         }
 
         executeStockMovement(partId, MovementType.ADJUST, delta, 0, null, null, reason.trim(), userId);
+        statusLogRepository.save(new StatusLog(null, EntityType.STOCK, partId,
+            String.valueOf(part.onHand()), String.valueOf(part.onHand() + delta), userId, reason.trim(), Instant.now()));
         return partRepository.findById(partId).orElseThrow();
     }
 
@@ -278,7 +298,7 @@ public class StockService {
             } catch (DateTimeParseException ignored) {}
         }
 
-        String poNo = "PO-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 900 + 100);
+        String poNo = DocNo.next("PO", purchaseOrderRepository.count());
         PurchaseOrder po = new PurchaseOrder(
             null,
             poNo,

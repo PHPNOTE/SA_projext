@@ -3,14 +3,18 @@ package com.garage.service;
 import com.garage.dto.AdminDtos.*;
 import com.garage.exception.GarageException.*;
 import com.garage.model.entity.RepairBay;
+import com.garage.model.entity.StatusLog;
+import com.garage.model.entity.StatusLog.EntityType;
 import com.garage.model.entity.UserAccount;
 import com.garage.model.entity.UserAccount.UserRole;
 import com.garage.repository.RepairBayRepository;
+import com.garage.repository.StatusLogRepository;
 import com.garage.repository.UserAccountRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -19,15 +23,18 @@ public class AdminService {
     private final UserAccountRepository userRepository;
     private final RepairBayRepository bayRepository;
     private final PasswordEncoder passwordEncoder;
+    private final StatusLogRepository statusLogRepository;
 
     public AdminService(
         UserAccountRepository userRepository,
         RepairBayRepository bayRepository,
-        PasswordEncoder passwordEncoder
+        PasswordEncoder passwordEncoder,
+        StatusLogRepository statusLogRepository
     ) {
         this.userRepository = userRepository;
         this.bayRepository = bayRepository;
         this.passwordEncoder = passwordEncoder;
+        this.statusLogRepository = statusLogRepository;
     }
 
     @Transactional
@@ -59,6 +66,7 @@ public class AdminService {
                 active
             );
             userRepository.update(updated);
+            log(EntityType.USER, updated.userId(), "UPDATED", currentUser.userId(), "แก้ไขบัญชีและสิทธิ์ " + updated.username());
             return updated;
         }).orElseGet(() -> {
             String defaultHash = passwordEncoder.encode("password123");
@@ -71,8 +79,43 @@ public class AdminService {
                 role,
                 true
             );
-            return userRepository.save(newUser);
+            UserAccount saved = userRepository.save(newUser);
+            log(EntityType.USER, saved.userId(), "CREATED", currentUser.userId(), "สร้างบัญชีผู้ใช้ " + saved.username());
+            return saved;
         });
+    }
+
+    private void log(EntityType type, Long entityId, String action, Long userId, String note) {
+        statusLogRepository.save(new StatusLog(null, type, entityId, null, action, userId, note, Instant.now()));
+    }
+
+    @Transactional
+    public void deleteUser(Long userId, UserAccount currentUser) {
+        if (currentUser == null || currentUser.role() != UserRole.MANAGER) {
+            throw new AccessDeniedException("Only MANAGER can delete accounts");
+        }
+        if (currentUser.userId().equals(userId)) {
+            throw new ValidationException("Cannot delete your own account");
+        }
+        UserAccount user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        if (!userRepository.deleteIfUnused(userId)) {
+            throw new ValidationException("Cannot delete account that has repair history; deactivate it instead");
+        }
+        log(EntityType.USER, userId, "DELETED", currentUser.userId(), "ลบบัญชีผู้ใช้ " + user.username());
+    }
+
+    @Transactional
+    public void deleteBay(Long bayId, UserAccount currentUser) {
+        if (currentUser == null || currentUser.role() != UserRole.MANAGER) {
+            throw new AccessDeniedException("Only MANAGER can delete repair bays");
+        }
+        RepairBay bay = bayRepository.findById(bayId)
+            .orElseThrow(() -> new ResourceNotFoundException("Bay not found: " + bayId));
+        if (!bayRepository.deleteIfUnused(bayId)) {
+            throw new ValidationException("Cannot delete bay that has been used by repair orders; deactivate it instead");
+        }
+        log(EntityType.BAY, bayId, "DELETED", currentUser.userId(), "ลบช่องซ่อม " + bay.name());
     }
 
     @Transactional
@@ -93,6 +136,7 @@ public class AdminService {
             false
         );
         userRepository.update(deactivated);
+        log(EntityType.USER, deactivated.userId(), "DEACTIVATED", currentUser.userId(), "ปิดใช้งานบัญชี " + deactivated.username());
         return deactivated;
     }
 
@@ -106,15 +150,27 @@ public class AdminService {
 
     @Transactional
     public RepairBay createBay(CreateBayRequest req) {
+        return createBay(req, null);
+    }
+
+    @Transactional
+    public RepairBay createBay(CreateBayRequest req, UserAccount currentUser) {
         if (req == null || req.name() == null || req.name().trim().isEmpty()) {
             throw new ValidationException("Bay name required");
         }
         RepairBay bay = new RepairBay(null, req.name().trim(), true);
-        return bayRepository.save(bay);
+        RepairBay saved = bayRepository.save(bay);
+        log(EntityType.BAY, saved.bayId(), "CREATED", currentUser != null ? currentUser.userId() : null, "สร้างช่องซ่อม " + saved.name());
+        return saved;
     }
 
     @Transactional
     public RepairBay updateBay(Long bayId, UpdateBayRequest req) {
+        return updateBay(bayId, req, null);
+    }
+
+    @Transactional
+    public RepairBay updateBay(Long bayId, UpdateBayRequest req, UserAccount currentUser) {
         RepairBay existing = bayRepository.findById(bayId)
             .orElseThrow(() -> new ResourceNotFoundException("Bay not found: " + bayId));
 
@@ -122,6 +178,7 @@ public class AdminService {
         boolean active = req.isActive() != null ? req.isActive() : existing.isActive();
         RepairBay updated = new RepairBay(existing.bayId(), name, active);
         bayRepository.update(updated);
+        log(EntityType.BAY, bayId, "UPDATED", currentUser != null ? currentUser.userId() : null, "แก้ไขช่องซ่อม " + updated.name());
         return updated;
     }
 

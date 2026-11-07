@@ -129,7 +129,7 @@ export default function InventoryUsageReportPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-amber-600 uppercase tracking-wider">
-            <Boxes className="w-4 h-4" /> Operational Report 2 • Rubric Item 32
+            <Boxes className="w-4 h-4" /> Operational Report 2 • Use Case UC16
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             รายงานการใช้อะไหล่และสรุปยอดคงคลัง (Parts Inventory Usage & Reorder Report)

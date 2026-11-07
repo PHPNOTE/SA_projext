@@ -12,5 +12,6 @@ public interface UserAccountRepository {
     List<UserAccount> findAllActive();
     List<UserAccount> findAll();
     void update(UserAccount user);
+    boolean deleteIfUnused(Long userId);
     long count();
 }

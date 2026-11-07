@@ -1,5 +1,6 @@
 package com.garage.service;
 
+import com.garage.util.DocNo;
 import com.garage.dto.InvoiceDtos.*;
 import com.garage.exception.GarageException.*;
 import com.garage.model.entity.*;
@@ -107,7 +108,7 @@ public class BillingService {
             BigDecimal insuranceCovered = ro.insuranceCoveredAmount() != null ? ro.insuranceCoveredAmount() : BigDecimal.ZERO;
             BigDecimal customerDue = subtotal.subtract(insuranceCovered).max(BigDecimal.ZERO);
 
-            String invoiceNo = "INV-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 900 + 100);
+            String invoiceNo = DocNo.next("INV", invoiceRepository.count());
             Invoice invoice = new Invoice(
                 null,
                 invoiceNo,

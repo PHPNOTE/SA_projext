@@ -22,7 +22,13 @@ public class PurchaseOrderController {
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final AuthService authService;
 
-    public PurchaseOrderController(StockService stockService, PurchaseOrderRepository purchaseOrderRepository, AuthService authService) {
+    private final com.garage.repository.PoLineRepository poLineRepository;
+    private final com.garage.repository.PartRepository partRepository;
+
+    public PurchaseOrderController(StockService stockService, PurchaseOrderRepository purchaseOrderRepository, AuthService authService,
+                                   com.garage.repository.PoLineRepository poLineRepository, com.garage.repository.PartRepository partRepository) {
+        this.poLineRepository = poLineRepository;
+        this.partRepository = partRepository;
         this.stockService = stockService;
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.authService = authService;
@@ -58,14 +64,49 @@ public class PurchaseOrderController {
     }
 
     @GetMapping({"/warehouse/pos", "/purchase-orders"})
-    public ResponseEntity<List<PurchaseOrder>> getAllPOs() {
-        return ResponseEntity.ok(purchaseOrderRepository.findAll());
+    public ResponseEntity<List<java.util.Map<String, Object>>> getAllPOs() {
+        return ResponseEntity.ok(purchaseOrderRepository.findAll().stream().map(this::toView).toList());
     }
 
     @GetMapping({"/warehouse/pos/{id}", "/purchase-orders/{id}"})
-    public ResponseEntity<PurchaseOrder> getPOById(@PathVariable Long id) {
+    public ResponseEntity<java.util.Map<String, Object>> getPOById(@PathVariable Long id) {
         return purchaseOrderRepository.findById(id)
-            .map(ResponseEntity::ok)
+            .map(po -> ResponseEntity.ok(toView(po)))
             .orElse(ResponseEntity.notFound().build());
+    }
+
+    /** PO header plus its lines and total cost, so the UI can show the full document. */
+    private java.util.Map<String, Object> toView(PurchaseOrder po) {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("poId", po.poId());
+        m.put("id", po.poId());
+        m.put("poNo", po.poNo());
+        m.put("poNumber", po.poNo());
+        m.put("supplierName", po.supplierName());
+        m.put("status", po.status());
+        m.put("expectedDate", po.expectedDate());
+        m.put("createdBy", po.createdBy());
+        m.put("createdAt", po.createdAt());
+        m.put("orderedAt", po.orderedAt());
+        java.math.BigDecimal total = java.math.BigDecimal.ZERO;
+        List<java.util.Map<String, Object>> lines = new java.util.ArrayList<>();
+        for (com.garage.model.entity.PoLine l : poLineRepository.findByPoId(po.poId())) {
+            java.util.Map<String, Object> lm = new java.util.LinkedHashMap<>();
+            var part = partRepository.findById(l.partId()).orElse(null);
+            lm.put("id", l.poLineId());
+            lm.put("poLineId", l.poLineId());
+            lm.put("poId", l.poId());
+            lm.put("partId", l.partId());
+            lm.put("partCode", part != null ? part.sku() : "");
+            lm.put("partName", part != null ? part.name() : "");
+            lm.put("qtyOrdered", l.qtyOrdered());
+            lm.put("qtyReceived", l.qtyReceived());
+            lm.put("unitCost", l.unitCost());
+            total = total.add(l.unitCost().multiply(java.math.BigDecimal.valueOf(l.qtyOrdered())));
+            lines.add(lm);
+        }
+        m.put("totalCost", total);
+        m.put("lines", lines);
+        return m;
     }
 }
