@@ -89,7 +89,7 @@ export default function WarehouseAuditPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-amber-600 uppercase tracking-wider">
-            <FileSpreadsheet className="w-4 h-4" /> แผนกคลังพัสดุ • Use Case W6
+            <FileSpreadsheet className="w-4 h-4" /> แผนกคลังพัสดุ • Use Case UC14
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             ตรวจนับสต็อกและปรับยอดสินค้า (Cycle Count Stock Audit)

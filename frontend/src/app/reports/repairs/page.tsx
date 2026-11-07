@@ -99,7 +99,7 @@ export default function RepairSummaryReportPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
-            <FileText className="w-4 h-4" /> Operational Report 1 • Rubric Item 32
+            <FileText className="w-4 h-4" /> Operational Report 1 • Use Case UC16
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             รายงานสรุปใบสั่งซ่อมและสถานะงานบริการ (Repair Operations Report)

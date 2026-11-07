@@ -395,7 +395,7 @@ CREATE TABLE status_log (
     user_id BIGINT NULL,
     note TEXT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_status_log_type CHECK (entity_type IN ('REPAIR', 'ESTIMATE', 'PART_REQUEST', 'SALE', 'PO')),
+    CONSTRAINT chk_status_log_type CHECK (entity_type IN ('REPAIR', 'ESTIMATE', 'PART_REQUEST', 'SALE', 'PO', 'PART', 'STOCK', 'USER', 'BAY')),
     CONSTRAINT fk_status_log_user FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE SET NULL
 );
 

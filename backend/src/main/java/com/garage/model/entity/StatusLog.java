@@ -15,7 +15,7 @@ public record StatusLog(
     Instant createdAt
 ) {
     public enum EntityType {
-        REPAIR, ESTIMATE, PART_REQUEST, SALE, PO
+        REPAIR, ESTIMATE, PART_REQUEST, SALE, PO, PART, STOCK, USER, BAY
     }
 
     public static final RowMapper<StatusLog> ROW_MAPPER = (rs, rowNum) -> new StatusLog(

@@ -10,7 +10,17 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.garage.model.entity.Customer;
+import com.garage.model.entity.Vehicle;
+import com.garage.repository.CustomerRepository;
+import com.garage.repository.VehicleRepository;
+import com.garage.repository.EstimateLineRepository;
+import com.garage.repository.EstimateRepository;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
@@ -20,7 +30,47 @@ public class RepairOrderController {
     private final RepairOrderService repairOrderService;
     private final AuthService authService;
 
-    public RepairOrderController(QueueService queueService, RepairOrderService repairOrderService, AuthService authService) {
+    private final VehicleRepository vehicleRepository;
+    private final CustomerRepository customerRepository;
+    private final EstimateRepository estimateRepository;
+    private final EstimateLineRepository estimateLineRepository;
+    private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+    /** Adds customer / vehicle display fields to a repair order (read model for UI). */
+    private Map<String, Object> view(RepairOrder ro) {
+        Map<String, Object> m = new LinkedHashMap<>(mapper.convertValue(ro, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+        Vehicle v = ro.vehicleId() == null ? null : vehicleRepository.findById(ro.vehicleId()).orElse(null);
+        if (v != null) {
+            m.put("licensePlate", v.plate());
+            m.put("vehicleModel", ((v.make() == null ? "" : v.make()) + " " + (v.model() == null ? "" : v.model())).trim());
+            Customer c = v.customerId() == null ? null : customerRepository.findById(v.customerId()).orElse(null);
+            if (c != null) {
+                m.put("customerId", c.customerId());
+                m.put("customerName", c.name());
+                m.put("customerPhone", c.phone());
+            }
+        }
+        BigDecimal labor = BigDecimal.ZERO, parts = BigDecimal.ZERO;
+        var est = estimateRepository.findLatestRevision(ro.repairId()).orElse(null);
+        if (est != null) {
+            for (var l : estimateLineRepository.findByEstimateId(est.estimateId())) {
+                BigDecimal amt = l.unitPrice().multiply(BigDecimal.valueOf(l.qty()));
+                if (l.lineType() == com.garage.model.entity.EstimateLine.EstimateLineType.LABOR) labor = labor.add(amt); else parts = parts.add(amt);
+            }
+        }
+        m.put("laborTotal", labor);
+        m.put("partsTotal", parts);
+        m.put("subtotal", labor.add(parts));
+        return m;
+    }
+
+    public RepairOrderController(QueueService queueService, RepairOrderService repairOrderService, AuthService authService,
+                                 VehicleRepository vehicleRepository, CustomerRepository customerRepository,
+                                 EstimateRepository estimateRepository, EstimateLineRepository estimateLineRepository) {
+        this.estimateRepository = estimateRepository;
+        this.estimateLineRepository = estimateLineRepository;
+        this.vehicleRepository = vehicleRepository;
+        this.customerRepository = customerRepository;
         this.queueService = queueService;
         this.repairOrderService = repairOrderService;
         this.authService = authService;
@@ -107,17 +157,17 @@ public class RepairOrderController {
     }
 
     @GetMapping("/repairs")
-    public ResponseEntity<List<RepairOrder>> getAllRepairs(@RequestParam(required = false) String status) {
-        return ResponseEntity.ok(repairOrderService.getAllRepairs(status));
+    public ResponseEntity<List<Map<String, Object>>> getAllRepairs(@RequestParam(required = false) String status) {
+        return ResponseEntity.ok(repairOrderService.getAllRepairs(status).stream().map(this::view).toList());
     }
 
     @GetMapping("/repairs/{id}")
-    public ResponseEntity<RepairOrder> getRepairById(@PathVariable Long id) {
-        return ResponseEntity.ok(repairOrderService.getRepairById(id));
+    public ResponseEntity<Map<String, Object>> getRepairById(@PathVariable Long id) {
+        return ResponseEntity.ok(view(repairOrderService.getRepairById(id)));
     }
 
     @GetMapping({"/queue", "/queue/board"})
-    public ResponseEntity<List<RepairOrder>> getQueue() {
-        return ResponseEntity.ok(queueService.getQueue());
+    public ResponseEntity<List<Map<String, Object>>> getQueue() {
+        return ResponseEntity.ok(queueService.getQueue().stream().map(this::view).toList());
     }
 }

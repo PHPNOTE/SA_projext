@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { apiGetParts, apiCreatePart } from '@/lib/api';
+import { apiGetParts, apiCreatePart, apiDeletePart } from '@/lib/api';
 import { Part } from '@/lib/types';
 import {
   Boxes,
@@ -36,6 +36,16 @@ export default function WarehouseInventoryPage() {
     description: '',
     isActive: true,
   });
+
+  const handleDeletePart = async (part: Part) => {
+    if (!confirm(`ยืนยันการลบอะไหล่ ${part.partCode}? (ลบได้เฉพาะรายการที่ไม่เคยมีการเคลื่อนไหวสต็อก)`)) return;
+    try {
+      await apiDeletePart(part.id);
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -82,7 +92,7 @@ export default function WarehouseInventoryPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-amber-600 uppercase tracking-wider">
-            <Boxes className="w-4 h-4" /> แผนกคลังพัสดุ • Use Case W1
+            <Boxes className="w-4 h-4" /> แผนกคลังพัสดุ • Use Case UC12
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             จัดการคลังและตรวจสอบอะไหล่ (Spare Parts Catalog & Inventory)
@@ -188,6 +198,7 @@ export default function WarehouseInventoryPage() {
                 <th className="py-3 px-4 text-center">ยอดจอง (Reserved)</th>
                 <th className="py-3 px-4 text-center">พร้อมเบิก (Available)</th>
                 <th className="py-3 px-4 text-center">สถานะสต็อก</th>
+                <th className="py-3 px-4 text-center">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -223,6 +234,14 @@ export default function WarehouseInventoryPage() {
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       <StatusBadge status={stockStatus} />
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <button
+                        onClick={() => handleDeletePart(part)}
+                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs"
+                      >
+                        ลบ
+                      </button>
                     </td>
                   </tr>
                 );

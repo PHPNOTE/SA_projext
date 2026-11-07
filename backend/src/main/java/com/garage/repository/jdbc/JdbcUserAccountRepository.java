@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
 import java.util.Map;
@@ -88,5 +89,15 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
     public long count() {
         Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM user_account", Long.class);
         return count != null ? count : 0L;
+    }
+
+    @Override
+    public boolean deleteIfUnused(Long id) {
+        String sql = "DELETE FROM user_account WHERE user_id = :id AND NOT EXISTS (SELECT 1 FROM repair_order WHERE created_by = :id OR mechanic_id = :id)";
+        try {
+            return namedJdbc.update(sql, Map.of("id", id)) > 0;
+        } catch (DataIntegrityViolationException e) {
+            return false;
+        }
     }
 }

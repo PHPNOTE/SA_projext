@@ -13,5 +13,6 @@ public interface RepairBayRepository {
     List<RepairBay> findAll();
     void update(RepairBay bay);
     boolean isBayOccupied(Long bayId);
+    boolean deleteIfUnused(Long bayId);
     long count();
 }

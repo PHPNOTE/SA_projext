@@ -94,7 +94,7 @@ export default function RequisitionsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 uppercase tracking-wider">
-            <PackagePlus className="w-4 h-4" /> ฝ่ายช่างเทคนิค • Use Case W2
+            <PackagePlus className="w-4 h-4" /> ฝ่ายช่างเทคนิค • Use Case UC02
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             ขอเบิกอะไหล่สำหรับงานซ่อม (Parts Requisition Form)

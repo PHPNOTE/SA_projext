@@ -7,6 +7,9 @@ import {
   apiGetUsers,
   apiCreateUser,
   apiDeactivateUser,
+  apiDeleteBay,
+  apiCreateBay,
+  apiDeleteUser,
 } from '@/lib/api';
 import { RepairBay, User, UserRole } from '@/lib/types';
 import {
@@ -29,6 +32,19 @@ export default function AdminSettingsPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
+  const [newBayName, setNewBayName] = useState('');
+
+  const handleCreateBay = async () => {
+    if (!newBayName.trim()) return;
+    try {
+      await apiCreateBay(newBayName.trim());
+      setMsg(`เพิ่มช่องซ่อม ${newBayName.trim()} เรียบร้อยแล้ว`);
+      setNewBayName('');
+      await loadData();
+    } catch (err: any) {
+      setMsg(err.message || 'เพิ่มช่องซ่อมไม่สำเร็จ');
+    }
+  };
 
   // User modal
   const [userModalOpen, setUserModalOpen] = useState(false);
@@ -57,6 +73,28 @@ export default function AdminSettingsPage() {
     try {
       await apiUpdateBay(bay.id, { isActive: !bay.isActive });
       setMsg(`ปรับปรุงสถานะช่องซ่อม ${bay.bayNumber} สำเร็จ`);
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteBay = async (bay: RepairBay) => {
+    if (!confirm(`ยืนยันการลบช่องซ่อม ${bay.bayNumber}? (ลบได้เฉพาะช่องที่ไม่เคยถูกใช้งาน)`)) return;
+    try {
+      await apiDeleteBay(bay.id);
+      setMsg(`ลบช่องซ่อม ${bay.bayNumber} เรียบร้อยแล้ว`);
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteUser = async (u: User) => {
+    if (!confirm(`ยืนยันการลบบัญชี @${u.username}? (ลบได้เฉพาะบัญชีที่ไม่มีประวัติงานซ่อม)`)) return;
+    try {
+      await apiDeleteUser(u.id);
+      setMsg(`ลบบัญชี @${u.username} เรียบร้อยแล้ว`);
       loadData();
     } catch (err: any) {
       alert(err.message);
@@ -94,7 +132,7 @@ export default function AdminSettingsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-rose-600 uppercase tracking-wider">
-            <Settings className="w-4 h-4" /> แผนกบริหาร • Use Case A1 / S1
+            <Settings className="w-4 h-4" /> แผนกบริหาร • Use Case UC15
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             ตั้งค่าระบบและจัดการข้อมูลหลัก (System Settings & Master Data)
@@ -154,7 +192,22 @@ export default function AdminSettingsPage() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-5 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-bold text-slate-900 text-sm">รายชื่อช่องบริการซ่อม (Repair Bays Configuration)</h2>
-            <span className="text-xs text-slate-400 font-mono">{bays.length} ช่องบริการ</span>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newBayName}
+                onChange={(e) => setNewBayName(e.target.value)}
+                placeholder="ชื่อช่องซ่อมใหม่ เช่น Bay 5 (Tire Service)"
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs w-64 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              />
+              <button
+                onClick={handleCreateBay}
+                className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-700"
+              >
+                เพิ่มช่องซ่อมใหม่
+              </button>
+              <span className="text-xs text-slate-400 font-mono">{bays.length} ช่องบริการ</span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -199,6 +252,12 @@ export default function AdminSettingsPage() {
                         }`}
                       >
                         {bay.isActive ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteBay(bay)}
+                        className="ml-2 px-3 py-1 rounded-lg font-bold text-xs bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      >
+                        ลบ
                       </button>
                     </td>
                   </tr>
@@ -259,6 +318,14 @@ export default function AdminSettingsPage() {
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-center">
+                      {u.username !== 'admin' && (
+                        <button
+                          onClick={() => handleDeleteUser(u)}
+                          className="px-2.5 py-1 mr-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs"
+                        >
+                          ลบ
+                        </button>
+                      )}
                       {u.isActive && u.username !== 'admin' && (
                         <button
                           onClick={() => handleDeactivate(u)}

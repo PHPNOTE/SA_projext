@@ -104,7 +104,7 @@ export default function SalesCounterPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-purple-600 uppercase tracking-wider">
-            <ShoppingCart className="w-4 h-4" /> แผนกขายหน้าร้าน • Use Case S1 / S2
+            <ShoppingCart className="w-4 h-4" /> แผนกขายหน้าร้าน • Use Case UC09 / UC10 / UC11
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-1">
             ขายอะไหล่หน้าร้าน (Point of Sale Counter)

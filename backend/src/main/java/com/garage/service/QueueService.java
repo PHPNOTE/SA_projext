@@ -1,5 +1,6 @@
 package com.garage.service;
 
+import com.garage.util.DocNo;
 import com.garage.dto.RepairDtos.RegisterRepairRequest;
 import com.garage.exception.GarageException.*;
 import com.garage.model.entity.*;
@@ -111,7 +112,7 @@ public class QueueService {
         BigDecimal insuranceCovered = req.insuranceCoveredAmount() != null ? req.insuranceCoveredAmount() : BigDecimal.ZERO;
         boolean docsReceived = Boolean.TRUE.equals(req.insuranceDocsReceived());
 
-        String ticketNo = "TICK-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 900 + 100);
+        String ticketNo = DocNo.next("RO", repairOrderRepository.count());
         RepairOrder ro = new RepairOrder(
             null,
             ticketNo,

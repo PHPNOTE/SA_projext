@@ -67,13 +67,25 @@ public class AdminController {
     }
 
     @PostMapping("/bays")
-    public ResponseEntity<RepairBay> createBay(@RequestBody CreateBayRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createBay(req));
+    public ResponseEntity<RepairBay> createBay(@RequestBody CreateBayRequest req, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createBay(req, resolveUser(request)));
     }
 
     @PutMapping("/bays/{id}")
-    public ResponseEntity<RepairBay> updateBay(@PathVariable Long id, @RequestBody UpdateBayRequest req) {
-        return ResponseEntity.ok(adminService.updateBay(id, req));
+    public ResponseEntity<RepairBay> updateBay(@PathVariable Long id, @RequestBody UpdateBayRequest req, HttpServletRequest request) {
+        return ResponseEntity.ok(adminService.updateBay(id, req, resolveUser(request)));
+    }
+
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<Map<String, Object>> deleteUser(@PathVariable Long id, HttpServletRequest request) {
+        adminService.deleteUser(id, resolveUser(request));
+        return ResponseEntity.ok(Map.of("message", "User " + id + " deleted"));
+    }
+
+    @DeleteMapping("/bays/{id}")
+    public ResponseEntity<Map<String, Object>> deleteBay(@PathVariable Long id, HttpServletRequest request) {
+        adminService.deleteBay(id, resolveUser(request));
+        return ResponseEntity.ok(Map.of("message", "Bay " + id + " deleted"));
     }
 
     @GetMapping("/mechanics")
