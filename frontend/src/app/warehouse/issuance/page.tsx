@@ -4,15 +4,19 @@ import React, { useState, useEffect } from 'react';
 import { apiGetParts, apiIssueParts, apiReturnParts, apiGetRequisitions } from '@/lib/api';
 import { Part, PartRequest } from '@/lib/types';
 import {
+  blockInvalidIntKeys,
+  sanitizeGeneralText,
+  validateMeaningfulText,
+} from '@/lib/validation';
+import {
   ArrowRightLeft,
   CheckCircle2,
   Undo2,
   PackageCheck,
-  Search,
   AlertCircle,
   MapPin,
 } from 'lucide-react';
-import { Badge, StatusBadge } from '@/components/ui/Badge';
+import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 
 export default function WarehouseIssuancePage() {
@@ -20,17 +24,15 @@ export default function WarehouseIssuancePage() {
   const [parts, setParts] = useState<Part[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Requisitions to issue
   const [pendingRequests, setPendingRequests] = useState<PartRequest[]>([]);
-
-  // Issued parts available for return
   const [issuedRequests, setIssuedRequests] = useState<PartRequest[]>([]);
 
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [selectedReturnReq, setSelectedReturnReq] = useState<PartRequest | null>(null);
   const [returnQty, setReturnQty] = useState(1);
   const [returnReason, setReturnReason] = useState('อะไหล่เหลือจากการซ่อม นำคืนเข้าสต็อก');
-  const [msg, setMsg] = useState<string | null>(null);
+  const [returnError, setReturnError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -40,7 +42,7 @@ export default function WarehouseIssuancePage() {
         apiGetRequisitions(),
       ]);
       setParts(pList);
-      if (reqList && reqList.length > 0) {
+      if (reqList) {
         setPendingRequests(reqList.filter((r) => r.status === 'RESERVED' || r.status === 'BACKORDERED'));
         setIssuedRequests(reqList.filter((r) => r.status === 'ISSUED' || r.status === 'RETURNED'));
       }
@@ -56,38 +58,42 @@ export default function WarehouseIssuancePage() {
   const handleIssue = async (req: PartRequest) => {
     try {
       await apiIssueParts(req.id, req.partId, req.qtyRequested);
-      setPendingRequests(pendingRequests.filter((r) => r.id !== req.id));
-      setIssuedRequests([
-        {
-          ...req,
-          qtyIssued: req.qtyRequested,
-          status: 'ISSUED',
-        },
-        ...issuedRequests,
-      ]);
-      setMsg(`จ่ายอะไหล่สำเร็จ: ${req.partName} จำนวน ${req.qtyRequested} หน่วย (หักยอด On Hand & Reserved)`);
+      setMsg({
+        type: 'success',
+        text: `จ่ายอะไหล่สำเร็จ: ${req.partName} จำนวน ${req.qtyRequested} หน่วย (หักยอด On Hand & Reserved)`,
+      });
       loadData();
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการจ่ายอะไหล่');
+      setMsg({ type: 'error', text: err.message || 'เกิดข้อผิดพลาดในการจ่ายอะไหล่' });
     }
   };
 
   const handleConfirmReturn = async () => {
     if (!selectedReturnReq) return;
+    setReturnError(null);
+
+    const maxReturnable = Math.max(0, selectedReturnReq.qtyIssued - selectedReturnReq.qtyReturned);
+    if (!Number.isInteger(returnQty) || returnQty < 1 || returnQty > maxReturnable) {
+      setReturnError(`จำนวนที่รับคืนต้องอยู่ระหว่าง 1 ถึง ${maxReturnable} หน่วย`);
+      return;
+    }
+
+    const reasonErr = validateMeaningfulText(returnReason, 'เหตุผลการรับคืนอะไหล่', 3);
+    if (reasonErr) {
+      setReturnError(reasonErr);
+      return;
+    }
+
     try {
-      await apiReturnParts(selectedReturnReq.id, selectedReturnReq.partId, returnQty, returnReason);
-      setIssuedRequests(
-        issuedRequests.map((r) =>
-          r.id === selectedReturnReq.id
-            ? { ...r, qtyReturned: r.qtyReturned + returnQty, status: 'RETURNED' }
-            : r
-        )
-      );
-      setMsg(`รับคืนอะไหล่ ${selectedReturnReq.partName} จำนวน ${returnQty} หน่วยเข้าสู่สต็อกเรียบร้อยแล้ว`);
+      await apiReturnParts(selectedReturnReq.id, selectedReturnReq.partId, returnQty, returnReason.trim());
+      setMsg({
+        type: 'success',
+        text: `รับคืนอะไหล่ ${selectedReturnReq.partName} จำนวน ${returnQty} หน่วยเข้าสู่สต็อกเรียบร้อยแล้ว`,
+      });
       setReturnModalOpen(false);
       loadData();
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการรับคืนอะไหล่');
+      setReturnError(err.message || 'เกิดข้อผิดพลาดในการรับคืนอะไหล่');
     }
   };
 
@@ -133,12 +139,22 @@ export default function WarehouseIssuancePage() {
       </div>
 
       {msg && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-center justify-between">
+        <div
+          className={`p-4 rounded-xl border text-xs font-medium flex items-center justify-between ${
+            msg.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-700'
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>{msg}</span>
+            {msg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600" />
+            )}
+            <span>{msg.text}</span>
           </div>
-          <button onClick={() => setMsg(null)} className="text-emerald-700">ปิด</button>
+          <button onClick={() => setMsg(null)} className="font-bold">ปิด</button>
         </div>
       )}
 
@@ -150,7 +166,7 @@ export default function WarehouseIssuancePage() {
                 รายการอะไหล่ที่จองแล้ว รอเจ้าหน้าที่จ่ายของ (Pending Issuance)
               </h2>
               <p className="text-xs text-slate-400">
-                เมื่อกด "จ่ายอะไหล่" ระบบจะตัด On-Hand และ Reserved พร้อมบันทึก ISSUE ลงสมุดบัญชีสต็อก
+                เมื่อกด &quot;จ่ายอะไหล่&quot; ระบบจะตัด On-Hand และ Reserved พร้อมบันทึก ISSUE ลงสมุดบัญชีสต็อก
               </p>
             </div>
             <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-bold font-mono">
@@ -166,6 +182,7 @@ export default function WarehouseIssuancePage() {
             ) : (
               pendingRequests.map((req) => {
                 const partInfo = parts.find((p) => p.id === req.partId);
+                const isReserved = req.status === 'RESERVED';
 
                 return (
                   <div
@@ -177,9 +194,13 @@ export default function WarehouseIssuancePage() {
                         <span className="font-mono font-bold text-blue-700 text-xs">
                           {req.requestNumber}
                         </span>
-                        <Badge variant="warning">จองสต็อกแล้ว (RESERVED)</Badge>
+                        {isReserved ? (
+                          <Badge variant="warning">จองสต็อกแล้ว (RESERVED)</Badge>
+                        ) : (
+                          <Badge variant="danger">รอของเข้า PO (BACKORDERED)</Badge>
+                        )}
                         <span className="text-xs text-slate-400 font-mono">
-                          RO #{req.repairId}
+                          RO #{req.repairId || '-'}
                         </span>
                       </div>
 
@@ -198,10 +219,11 @@ export default function WarehouseIssuancePage() {
 
                     <button
                       onClick={() => handleIssue(req)}
-                      className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 self-end sm:self-center"
+                      disabled={!isReserved}
+                      className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 self-end sm:self-center disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <PackageCheck className="w-4 h-4" />
-                      <span>ยืนยันจ่ายอะไหล่ให้ช่าง</span>
+                      <span>{isReserved ? 'ยืนยันจ่ายอะไหล่ให้ช่าง' : 'รอของเข้าสต็อก (PO)'}</span>
                     </button>
                   </div>
                 );
@@ -226,40 +248,45 @@ export default function WarehouseIssuancePage() {
           </div>
 
           <div className="divide-y divide-slate-100">
-            {issuedRequests.map((req) => (
-              <div
-                key={req.id}
-                className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 transition-colors"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-blue-700 text-xs">
-                      {req.requestNumber}
-                    </span>
-                    <Badge variant="success">จ่ายแล้ว (ISSUED)</Badge>
-                    {req.qtyReturned > 0 && (
-                      <Badge variant="purple">รับคืนแล้ว {req.qtyReturned} หน่วย</Badge>
-                    )}
-                  </div>
-                  <h3 className="font-bold text-slate-900 text-sm">{req.partName}</h3>
-                  <p className="text-xs text-slate-500">
-                    รหัส: {req.partCode} • จ่ายไปแล้ว: {req.qtyIssued} หน่วย (คืนแล้ว: {req.qtyReturned} หน่วย)
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setSelectedReturnReq(req);
-                    setReturnQty(1);
-                    setReturnModalOpen(true);
-                  }}
-                  className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 self-end sm:self-center"
+            {issuedRequests.map((req) => {
+              const remainingReturnable = Math.max(0, req.qtyIssued - req.qtyReturned);
+              return (
+                <div
+                  key={req.id}
+                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 transition-colors"
                 >
-                  <Undo2 className="w-3.5 h-3.5" />
-                  <span>รับคืนเข้าสต็อก</span>
-                </button>
-              </div>
-            ))}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-blue-700 text-xs">
+                        {req.requestNumber}
+                      </span>
+                      <Badge variant="success">จ่ายแล้ว (ISSUED)</Badge>
+                      {req.qtyReturned > 0 && (
+                        <Badge variant="purple">รับคืนแล้ว {req.qtyReturned} หน่วย</Badge>
+                      )}
+                    </div>
+                    <h3 className="font-bold text-slate-900 text-sm">{req.partName}</h3>
+                    <p className="text-xs text-slate-500">
+                      รหัส: {req.partCode} • จ่ายไปแล้ว: {req.qtyIssued} หน่วย (คืนแล้ว: {req.qtyReturned} หน่วย • คงเหลือคืนได้: {remainingReturnable} หน่วย)
+                    </p>
+                  </div>
+
+                  <button
+                    disabled={remainingReturnable <= 0}
+                    onClick={() => {
+                      setSelectedReturnReq(req);
+                      setReturnQty(1);
+                      setReturnError(null);
+                      setReturnModalOpen(true);
+                    }}
+                    className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 self-end sm:self-center disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>{remainingReturnable > 0 ? 'รับคืนเข้าสต็อก' : 'คืนครบแล้ว'}</span>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -272,10 +299,20 @@ export default function WarehouseIssuancePage() {
           title={`รับคืนอะไหล่เข้าสต็อก: ${selectedReturnReq.partCode}`}
         >
           <div className="space-y-4 text-xs">
+            {returnError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                <span>{returnError}</span>
+              </div>
+            )}
+
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
               <span className="text-slate-500">รายการอะไหล่:</span>
               <p className="font-bold text-slate-800 text-sm">{selectedReturnReq.partName}</p>
-              <p className="text-slate-500">จำนวนที่เคยจ่าย: {selectedReturnReq.qtyIssued} หน่วย</p>
+              <p className="text-slate-500">
+                จำนวนที่เคยจ่าย: {selectedReturnReq.qtyIssued} หน่วย (รับคืนได้สูงสุด:{' '}
+                <b>{Math.max(0, selectedReturnReq.qtyIssued - selectedReturnReq.qtyReturned)}</b> หน่วย)
+              </p>
             </div>
 
             <div>
@@ -283,19 +320,32 @@ export default function WarehouseIssuancePage() {
               <input
                 type="number"
                 min="1"
-                max={selectedReturnReq.qtyIssued - selectedReturnReq.qtyReturned}
+                max={Math.max(1, selectedReturnReq.qtyIssued - selectedReturnReq.qtyReturned)}
+                step="1"
                 value={returnQty}
-                onChange={(e) => setReturnQty(Math.max(1, Number(e.target.value)))}
+                onKeyDown={blockInvalidIntKeys}
+                onChange={(e) => {
+                  setReturnError(null);
+                  const maxVal = Math.max(1, selectedReturnReq.qtyIssued - selectedReturnReq.qtyReturned);
+                  const num = Number(e.target.value.replace(/[^0-9]/g, ''));
+                  setReturnQty(Math.min(maxVal, Math.max(1, num || 1)));
+                }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">เหตุผลการรับคืน</label>
+              <label className="block font-semibold text-slate-700 mb-1">
+                เหตุผลการรับคืน <span className="text-rose-500">*</span>
+              </label>
               <textarea
                 rows={2}
+                maxLength={200}
                 value={returnReason}
-                onChange={(e) => setReturnReason(e.target.value)}
+                onChange={(e) => {
+                  setReturnError(null);
+                  setReturnReason(sanitizeGeneralText(e.target.value, 200));
+                }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl"
               />
             </div>

@@ -3,39 +3,40 @@
 import React, { useEffect, useState } from 'react';
 import { apiGetInvoices, apiGetRepairs, apiCreateInvoiceForRepair, apiPayInvoice } from '@/lib/api';
 import { Invoice, RepairOrder } from '@/lib/types';
+import { blockInvalidDecimalKeys } from '@/lib/validation';
 import {
   Receipt,
   Printer,
-  CreditCard,
   CheckCircle2,
   AlertCircle,
-  FileText,
   DollarSign,
-  Car,
-  User,
   PlusCircle,
 } from 'lucide-react';
-import { StatusBadge, Badge } from '@/components/ui/Badge';
+import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { PrintHeader, PrintSignatures } from '@/components/ui/PrintHeader';
 
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [readyRepairs, setReadyRepairs] = useState<RepairOrder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [payModalOpen, setPayModalOpen] = useState(false);
-  const [payAmount, setPayAmount] = useState<number>(0);
+  const [payAmountStr, setPayAmountStr] = useState<string>('0');
   const [payMethod, setPayMethod] = useState<string>('TRANSFER');
   const [payerType, setPayerType] = useState<'CUSTOMER' | 'INSURER'>('CUSTOMER');
   const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const [invs, roList] = await Promise.all([apiGetInvoices(), apiGetRepairs()]);
       setInvoices(invs);
-      const ready = roList.filter((r) => r.status === 'AWAITING_PAYMENT' && !invs.some((i: any) => i.repairId === r.id && i.status !== 'VOID'));
+      const ready = roList.filter(
+        (r) => r.status === 'AWAITING_PAYMENT' && !invs.some((i: any) => i.repairId === r.id && i.status !== 'VOID')
+      );
       setReadyRepairs(ready);
     } finally {
       setLoading(false);
@@ -47,20 +48,33 @@ export default function BillingPage() {
   }, []);
 
   const handleGenerateInvoice = async (roId: number) => {
+    setPageError(null);
     try {
       const newInv = await apiCreateInvoiceForRepair(roId);
       setSelectedInvoice(newInv);
+      setPaymentSuccess(`ออกใบแจ้งหนี้ #${newInv.invoiceNumber} เรียบร้อยแล้ว`);
       loadData();
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการออกใบเสร็จ');
+      setPageError(err.message || 'เกิดข้อผิดพลาดในการออกใบแจ้งหนี้');
     }
   };
 
-  const isInvoicePaid = (inv: Invoice) => {
-    const totalPaid = (inv.payments || [])
+  const getCustomerRemaining = (inv: Invoice) => {
+    const paidCustomer = (inv.payments || [])
       .filter((p) => p.payerType === 'CUSTOMER')
       .reduce((acc, p) => acc + p.amount, 0);
-    return (inv.status as string) === 'PAID' || totalPaid >= inv.customerDue;
+    return Math.max(0, +(inv.customerDue - paidCustomer).toFixed(2));
+  };
+
+  const getInsurerRemaining = (inv: Invoice) => {
+    const paidInsurer = (inv.payments || [])
+      .filter((p) => p.payerType === 'INSURER')
+      .reduce((acc, p) => acc + p.amount, 0);
+    return Math.max(0, +(inv.insuranceCovered - paidInsurer).toFixed(2));
+  };
+
+  const isInvoicePaid = (inv: Invoice) => {
+    return (inv.status as string) === 'PAID' || (getCustomerRemaining(inv) <= 0 && getInsurerRemaining(inv) <= 0);
   };
 
   const isInvoiceCancelled = (inv: Invoice) => {
@@ -69,32 +83,81 @@ export default function BillingPage() {
 
   const handleOpenPay = (inv: Invoice) => {
     if (isInvoicePaid(inv) || isInvoiceCancelled(inv)) {
-      alert('ไม่สามารถรับชำระเงินสำหรับใบแจ้งหนี้ที่ชำระแล้วหรือถูกยกเลิก');
+      setPageError('ไม่สามารถรับชำระเงินสำหรับใบแจ้งหนี้ที่ชำระครบแล้วหรือถูกยกเลิก');
       return;
     }
     setSelectedInvoice(inv);
-    const paidCustomer = (inv.payments || [])
-      .filter((p) => p.payerType === 'CUSTOMER')
-      .reduce((acc, p) => acc + p.amount, 0);
-    const remaining = Math.max(0, +(inv.customerDue - paidCustomer).toFixed(2));
-    setPayAmount(remaining);
-    setPayerType('CUSTOMER');
+    setPayError(null);
+    const custRem = getCustomerRemaining(inv);
+    const insRem = getInsurerRemaining(inv);
+    if (custRem > 0) {
+      setPayerType('CUSTOMER');
+      setPayAmountStr(custRem.toFixed(2));
+    } else {
+      setPayerType('INSURER');
+      setPayMethod('INSURANCE_DIRECT');
+      setPayAmountStr(insRem.toFixed(2));
+    }
     setPayModalOpen(true);
+  };
+
+  const handleSwitchPayerType = (nextType: 'CUSTOMER' | 'INSURER') => {
+    setPayerType(nextType);
+    setPayError(null);
+    if (!selectedInvoice) return;
+    if (nextType === 'CUSTOMER') {
+      setPayAmountStr(getCustomerRemaining(selectedInvoice).toFixed(2));
+      if (payMethod === 'INSURANCE_DIRECT') setPayMethod('TRANSFER');
+    } else {
+      setPayAmountStr(getInsurerRemaining(selectedInvoice).toFixed(2));
+      setPayMethod('INSURANCE_DIRECT');
+    }
   };
 
   const handleConfirmPayment = async () => {
     if (!selectedInvoice) return;
     if (isInvoicePaid(selectedInvoice) || isInvoiceCancelled(selectedInvoice)) {
-      alert('ไม่สามารถรับชำระเงินสำหรับใบแจ้งหนี้ที่ชำระแล้วหรือถูกยกเลิก');
+      setPayError('ไม่สามารถรับชำระเงินสำหรับใบแจ้งหนี้ที่ชำระแล้วหรือถูกยกเลิก');
       return;
     }
+
+    const parsedAmount = payAmountStr.trim() === '' ? NaN : Number(payAmountStr);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setPayError('จำนวนเงินที่รับชำระต้องเป็นตัวเลขมากกว่า 0 บาท');
+      return;
+    }
+
+    const maxDue =
+      payerType === 'CUSTOMER'
+        ? getCustomerRemaining(selectedInvoice)
+        : getInsurerRemaining(selectedInvoice);
+
+    if (maxDue <= 0) {
+      setPayError(
+        payerType === 'CUSTOMER'
+          ? 'ไม่มียอดค้างชำระในส่วนของลูกค้า'
+          : 'ไม่มียอดความคุ้มครองบริษัทประกันภัยค้างชำระสำหรับใบแจ้งหนี้นี้'
+      );
+      return;
+    }
+
+    if (parsedAmount > maxDue + 0.01) {
+      setPayError(`จำนวนเงินที่รับชำระเกินกว่ายอดค้างชำระสุทธิ (สูงสุด ฿${maxDue.toLocaleString('th-TH', { minimumFractionDigits: 2 })})`);
+      return;
+    }
+
+    setPayError(null);
     try {
-      const res = await apiPayInvoice(selectedInvoice.id, payAmount, payMethod, payerType);
-      setPaymentSuccess(`บันทึกการชำระเงินสำเร็จ! เลขที่ใบเสร็จรับเงิน: ${res.receiptNumber ?? (res.payment ? `RCP-${String(res.payment.paymentId).padStart(4, "0")}` : "-")}`);
+      const res = await apiPayInvoice(selectedInvoice.id, +parsedAmount.toFixed(2), payMethod, payerType);
+      setPaymentSuccess(
+        `บันทึกการชำระเงินสำเร็จ! เลขที่ใบเสร็จรับเงิน: ${
+          res.receiptNumber ?? (res.payment ? `RCP-${String(res.payment.paymentId).padStart(4, '0')}` : '-')
+        }`
+      );
       setPayModalOpen(false);
       loadData();
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการบันทึกชำระเงิน');
+      setPayError(err.message || 'เกิดข้อผิดพลาดในการบันทึกชำระเงิน');
     }
   };
 
@@ -129,6 +192,16 @@ export default function BillingPage() {
             <span>{paymentSuccess}</span>
           </div>
           <button onClick={() => setPaymentSuccess(null)} className="text-emerald-700">ปิด</button>
+        </div>
+      )}
+
+      {pageError && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center justify-between print:hidden">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+            <span>{pageError}</span>
+          </div>
+          <button onClick={() => setPageError(null)} className="text-rose-700">ปิด</button>
         </div>
       )}
 
@@ -341,19 +414,34 @@ export default function BillingPage() {
                 <span className="font-bold text-slate-800">{selectedInvoice.customerName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">ยอดที่ต้องชำระสุทธิ:</span>
+                <span className="text-slate-500">ยอดลูกค้าค้างชำระสุทธิ:</span>
                 <span className="font-mono font-bold text-slate-900 text-sm">
-                  ฿{selectedInvoice.customerDue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  ฿{getCustomerRemaining(selectedInvoice).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
+              {selectedInvoice.insuranceCovered > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">ยอดบริษัทประกันภัยค้างชำระ:</span>
+                  <span className="font-mono font-bold text-blue-700">
+                    ฿{getInsurerRemaining(selectedInvoice).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
             </div>
+
+            {payError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 flex items-center gap-2 font-medium">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{payError}</span>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">ประเภทผู้ชำระ (Payer Type)</label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setPayerType('CUSTOMER')}
+                  onClick={() => handleSwitchPayerType('CUSTOMER')}
                   className={`py-2 rounded-xl font-bold border text-xs ${
                     payerType === 'CUSTOMER' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700 border-slate-200'
                   }`}
@@ -362,7 +450,7 @@ export default function BillingPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPayerType('INSURER')}
+                  onClick={() => handleSwitchPayerType('INSURER')}
                   className={`py-2 rounded-xl font-bold border text-xs ${
                     payerType === 'INSURER' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700 border-slate-200'
                   }`}
@@ -390,9 +478,16 @@ export default function BillingPage() {
               <label className="block text-xs font-semibold text-slate-700 mb-1">จำนวนเงินที่รับชำระ (฿)</label>
               <input
                 type="number"
+                min="0.01"
+                max="10000000"
                 step="0.01"
-                value={payAmount}
-                onChange={(e) => setPayAmount(Number(e.target.value))}
+                onKeyDown={blockInvalidDecimalKeys}
+                value={payAmountStr}
+                onChange={(e) => {
+                  setPayAmountStr(e.target.value);
+                  setPayError(null);
+                }}
+                placeholder="0.00"
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900"
               />
             </div>

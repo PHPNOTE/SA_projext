@@ -2,6 +2,7 @@ package com.garage.service;
 
 import com.garage.dto.EstimateDtos.*;
 import com.garage.exception.GarageException.*;
+import com.garage.util.InputValidator;
 import com.garage.model.entity.*;
 import com.garage.model.entity.Estimate.EstimateStatus;
 import com.garage.model.entity.EstimateLine.EstimateLineType;
@@ -78,6 +79,9 @@ public class RepairOrderService {
         for (EstimateLineRequest l : req.lines()) {
             if (l.qty() == null || l.qty() <= 0) {
                 throw new InvalidQuantityException("Line quantity must be greater than zero");
+            }
+            if (!"PART".equalsIgnoreCase(l.lineType())) {
+                InputValidator.requireMeaningfulText(l.description(), "Labor description");
             }
             if (l.unitPrice() != null && l.unitPrice().signum() < 0) {
                 throw new InvalidPriceException("Unit price cannot be negative");

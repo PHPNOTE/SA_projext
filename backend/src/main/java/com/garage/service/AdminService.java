@@ -47,6 +47,10 @@ public class AdminService {
         }
 
         String username = req.username().trim();
+        com.garage.util.InputValidator.requireUsername(username);
+        if (req.displayName() != null && !req.displayName().trim().isEmpty()) {
+            com.garage.util.InputValidator.requirePersonName(req.displayName(), "Staff full name");
+        }
         UserRole role;
         try {
             role = UserRole.valueOf(req.role().trim().toUpperCase());
@@ -158,6 +162,7 @@ public class AdminService {
         if (req == null || req.name() == null || req.name().trim().isEmpty()) {
             throw new ValidationException("Bay name required");
         }
+        com.garage.util.InputValidator.requireMeaningfulText(req.name(), "Bay name");
         RepairBay bay = new RepairBay(null, req.name().trim(), true);
         RepairBay saved = bayRepository.save(bay);
         log(EntityType.BAY, saved.bayId(), "CREATED", currentUser != null ? currentUser.userId() : null, "สร้างช่องซ่อม " + saved.name());
@@ -174,6 +179,9 @@ public class AdminService {
         RepairBay existing = bayRepository.findById(bayId)
             .orElseThrow(() -> new ResourceNotFoundException("Bay not found: " + bayId));
 
+        if (req.name() != null) {
+            com.garage.util.InputValidator.requireMeaningfulText(req.name(), "Bay name");
+        }
         String name = req.name() != null ? req.name().trim() : existing.name();
         boolean active = req.isActive() != null ? req.isActive() : existing.isActive();
         RepairBay updated = new RepairBay(existing.bayId(), name, active);

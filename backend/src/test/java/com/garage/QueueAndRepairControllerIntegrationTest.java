@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
+import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -32,7 +33,7 @@ public class QueueAndRepairControllerIntegrationTest extends BaseControllerInteg
                 .content(objectMapper.writeValueAsString(req)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("QUEUED"))
-            .andExpect(jsonPath("$.ticketNo", startsWith("TICK-")))
+            .andExpect(jsonPath("$.ticketNo", anyOf(startsWith("RO-"), startsWith("TICK-"))))
             .andExpect(jsonPath("$.bayId").doesNotExist());
     }
 

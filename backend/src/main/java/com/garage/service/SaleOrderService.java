@@ -316,6 +316,12 @@ public class SaleOrderService {
             throw new ValidationException("Sale items required");
         }
 
+        if (req.customerName() != null && !req.customerName().trim().isEmpty()) {
+            com.garage.util.InputValidator.requirePersonName(req.customerName(), "Customer name");
+        }
+        if (req.customerPhone() != null && !req.customerPhone().trim().isEmpty()) {
+            com.garage.util.InputValidator.requirePhone(req.customerPhone(), true);
+        }
         Long customerId = req.customerId() != null ? req.customerId() : 6L;
         SaleResponse quote = createSaleQuote(customerId, req.items(), userId);
         SaleOrder confirmed = confirmSale(quote.saleOrder().saleId(), userId);

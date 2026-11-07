@@ -4,6 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { apiGetRepairs, apiGetParts, apiSubmitEstimate } from '@/lib/api';
 import { RepairOrder, Part } from '@/lib/types';
 import {
+  blockInvalidIntKeys,
+  blockInvalidDecimalKeys,
+  sanitizeGeneralText,
+  validateMeaningfulText,
+} from '@/lib/validation';
+import {
   Wrench,
   Plus,
   Trash2,
@@ -11,11 +17,10 @@ import {
   AlertCircle,
   FileText,
   Car,
-  User,
   Sparkles,
   AlertTriangle,
 } from 'lucide-react';
-import { StatusBadge, Badge } from '@/components/ui/Badge';
+import { StatusBadge } from '@/components/ui/Badge';
 
 export default function DiagnosticsPage() {
   const [repairs, setRepairs] = useState<RepairOrder[]>([]);
@@ -57,6 +62,8 @@ export default function DiagnosticsPage() {
   }, []);
 
   const selectedRo = repairs.find((r) => r.id === selectedRoId);
+  const canSubmitEstimate =
+    !!selectedRo && (selectedRo.status === 'IN_DIAGNOSIS' || selectedRo.status === 'IN_REPAIR');
 
   const addLine = (type: 'LABOR' | 'PART') => {
     if (type === 'LABOR') {
@@ -73,7 +80,7 @@ export default function DiagnosticsPage() {
           partId: defaultPart?.id,
           description: defaultPart?.name || 'อะไหล่',
           qty: 1,
-          unitPrice: defaultPart?.unitPrice || 0,
+          unitPrice: defaultPart?.unitPrice || 100,
         },
       ]);
     }
@@ -98,18 +105,26 @@ export default function DiagnosticsPage() {
 
   const totalLabor = lines
     .filter((l) => l.lineType === 'LABOR')
-    .reduce((acc, l) => acc + l.qty * l.unitPrice, 0);
+    .reduce((acc, l) => acc + (Number.isFinite(l.qty * l.unitPrice) ? l.qty * l.unitPrice : 0), 0);
 
   const totalParts = lines
     .filter((l) => l.lineType === 'PART')
-    .reduce((acc, l) => acc + l.qty * l.unitPrice, 0);
+    .reduce((acc, l) => acc + (Number.isFinite(l.qty * l.unitPrice) ? l.qty * l.unitPrice : 0), 0);
 
   const grandTotal = totalLabor + totalParts;
 
   const handleSubmitEstimate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedRoId) {
+    setSuccessMsg(null);
+
+    if (!selectedRoId || !selectedRo) {
       setErrorMsg('กรุณาเลือกใบสั่งซ่อมที่ต้องการทำใบประเมินราคา');
+      return;
+    }
+    if (!canSubmitEstimate) {
+      setErrorMsg(
+        `ไม่สามารถบันทึกใบประเมินราคาในสถานะ ${selectedRo.status} ได้ (อนุญาตเฉพาะสถานะ IN_DIAGNOSIS หรือ IN_REPAIR)`
+      );
       return;
     }
     if (lines.length === 0) {
@@ -117,10 +132,40 @@ export default function DiagnosticsPage() {
       return;
     }
 
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (l.lineType === 'LABOR') {
+        const descErr = validateMeaningfulText(l.description, `รายละเอียดค่าแรงรายการที่ ${i + 1}`, 2);
+        if (descErr) {
+          setErrorMsg(descErr);
+          return;
+        }
+      } else if (!l.partId) {
+        setErrorMsg(`กรุณาเลือกอะไหล่ในรายการที่ ${i + 1}`);
+        return;
+      }
+
+      if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 999) {
+        setErrorMsg(`จำนวนในรายการที่ ${i + 1} ต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง 999`);
+        return;
+      }
+
+      if (!Number.isFinite(l.unitPrice) || l.unitPrice <= 0 || l.unitPrice > 1000000) {
+        setErrorMsg(`ราคาต่อหน่วยในรายการที่ ${i + 1} ต้องมากกว่า 0 และไม่เกิน 1,000,000 บาท`);
+        return;
+      }
+    }
+
     setSaving(true);
     setErrorMsg(null);
     try {
-      await apiSubmitEstimate(selectedRoId, lines);
+      const sanitizedLines = lines.map((l) => ({
+        ...l,
+        description: l.description.trim(),
+        qty: Math.trunc(l.qty),
+        unitPrice: +l.unitPrice.toFixed(2),
+      }));
+      await apiSubmitEstimate(selectedRoId, sanitizedLines);
       setSuccessMsg(`บันทึกใบประเมินราคาสำเร็จ! ใบสั่งซ่อมปรับสถานะเป็น "รออนุมัติราคา (AWAITING_APPROVAL)"`);
       loadData();
     } catch (err: any) {
@@ -158,13 +203,16 @@ export default function DiagnosticsPage() {
       )}
 
       {errorMsg && (
-        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-rose-600" />
-          <span>{errorMsg}</span>
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button onClick={() => setErrorMsg(null)} className="text-rose-700">ปิด</button>
         </div>
       )}
 
-      <form onSubmit={handleSubmitEstimate} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <form onSubmit={handleSubmitEstimate} noValidate className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: RO Selection & Vehicle Info */}
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
@@ -179,7 +227,11 @@ export default function DiagnosticsPage() {
               </label>
               <select
                 value={selectedRoId || ''}
-                onChange={(e) => setSelectedRoId(Number(e.target.value))}
+                onChange={(e) => {
+                  setSelectedRoId(Number(e.target.value));
+                  setErrorMsg(null);
+                }}
+                disabled={loading}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium"
               >
                 {repairs
@@ -293,13 +345,14 @@ export default function DiagnosticsPage() {
                     <div className="flex-1 w-full sm:w-auto">
                       <input
                         type="text"
+                        maxLength={200}
                         value={line.description}
                         onChange={(e) => {
                           const copy = [...lines];
-                          copy[idx].description = e.target.value;
+                          copy[idx].description = sanitizeGeneralText(e.target.value, 200);
                           setLines(copy);
                         }}
-                        placeholder="รายละเอียดรายการบริการ / ค่าแรง..."
+                        placeholder="รายละเอียดรายการบริการ / ค่าแรง (ต้องมีตัวอักษร)..."
                         className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
                       />
                     </div>
@@ -311,13 +364,18 @@ export default function DiagnosticsPage() {
                       <input
                         type="number"
                         min="1"
+                        max="999"
+                        step="1"
+                        onKeyDown={blockInvalidIntKeys}
                         value={line.qty}
                         onChange={(e) => {
+                          const raw = e.target.value.replace(/\D/g, '');
+                          const parsed = raw === '' ? 1 : Math.min(999, Math.max(1, parseInt(raw, 10)));
                           const copy = [...lines];
-                          copy[idx].qty = Math.max(1, Number(e.target.value));
+                          copy[idx].qty = parsed;
                           setLines(copy);
                         }}
-                        className="w-14 px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs text-center font-mono font-bold"
+                        className="w-16 px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs text-center font-mono font-bold"
                       />
                     </div>
 
@@ -325,14 +383,19 @@ export default function DiagnosticsPage() {
                       <span className="text-slate-400">฿:</span>
                       <input
                         type="number"
-                        step="10"
+                        min="0"
+                        max="1000000"
+                        step="0.01"
+                        onKeyDown={blockInvalidDecimalKeys}
                         value={line.unitPrice}
                         onChange={(e) => {
+                          const val = e.target.value;
+                          const parsed = val === '' ? 0 : Math.min(1000000, Math.max(0, Number(val)));
                           const copy = [...lines];
-                          copy[idx].unitPrice = Number(e.target.value);
+                          copy[idx].unitPrice = Number.isFinite(parsed) ? parsed : 0;
                           setLines(copy);
                         }}
-                        className="w-20 px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs text-right font-mono font-bold"
+                        className="w-24 px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs text-right font-mono font-bold"
                       />
                     </div>
 
@@ -368,24 +431,27 @@ export default function DiagnosticsPage() {
               </div>
             </div>
 
-            {/* Warning if terminal or not eligible */}
-            {selectedRo && (selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED') && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                <span>งานซ่อมอยู่ในสถานะ {selectedRo.status} — ไม่สามารถประเมินราคาได้</span>
+            {/* Warning if not in IN_DIAGNOSIS / IN_REPAIR */}
+            {selectedRo && !canSubmitEstimate && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span>
+                  ใบสั่งซ่อมอยู่ในสถานะ <b>{selectedRo.status}</b> — สามารถสร้างหรือแก้ไขใบเสนอราคาได้เฉพาะงานในสถานะ{' '}
+                  <b>IN_DIAGNOSIS</b> หรือ <b>IN_REPAIR</b> เท่านั้น
+                </span>
               </div>
             )}
 
             {/* Submit Action */}
             <button
               type="submit"
-              disabled={saving || !selectedRo || selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED'}
+              disabled={saving || !canSubmitEstimate}
               className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-transform active:scale-[0.98] disabled:opacity-50 text-xs disabled:cursor-not-allowed"
             >
               {saving ? (
                 <span>กำลังบันทึกใบประเมินราคา...</span>
-              ) : selectedRo && (selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED') ? (
-                <span>ไม่สามารถเสนอราคาได้ (สถานะ: {selectedRo.status})</span>
+              ) : selectedRo && !canSubmitEstimate ? (
+                <span>ไม่สามารถเสนอราคาได้ (สถานะปัจจุบัน: {selectedRo.status})</span>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />

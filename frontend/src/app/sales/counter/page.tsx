@@ -4,20 +4,21 @@ import React, { useEffect, useState } from 'react';
 import { apiGetParts, apiCompleteCounterSale } from '@/lib/api';
 import { Part, Invoice } from '@/lib/types';
 import {
+  sanitizePersonName,
+  sanitizePhone,
+  validatePersonName,
+  validatePhone,
+} from '@/lib/validation';
+import {
   ShoppingCart,
   Plus,
   Minus,
-  Trash2,
   DollarSign,
   Search,
   CheckCircle2,
   Printer,
-  User,
-  CreditCard,
-  QrCode,
-  Boxes,
+  AlertCircle,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
 import { PrintHeader, PrintSignatures } from '@/components/ui/PrintHeader';
 
 export default function SalesCounterPage() {
@@ -29,22 +30,24 @@ export default function SalesCounterPage() {
   const [paymentMethod, setPaymentMethod] = useState('TRANSFER');
   const [completedInvoice, setCompletedInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     apiGetParts().then(setParts);
   }, []);
 
   const addToCart = (part: Part) => {
+    setErrorMsg(null);
     const available = Math.max(0, part.onHand - part.reserved);
     if (available <= 0) {
-      alert('ขออภัย สินค้านี้หมดสต็อกชั่วคราว');
+      setErrorMsg('ขออภัย สินค้านี้หมดสต็อกชั่วคราว');
       return;
     }
 
     const existing = cart.find((item) => item.part.id === part.id);
     if (existing) {
       if (existing.qty >= available) {
-        alert(`สินค้าคงเหลือพร้อมขายมีเพียง ${available} หน่วย`);
+        setErrorMsg(`สินค้าคงเหลือพร้อมขายมีเพียง ${available} หน่วย`);
         return;
       }
       setCart(cart.map((it) => (it.part.id === part.id ? { ...it, qty: it.qty + 1 } : it)));
@@ -54,6 +57,7 @@ export default function SalesCounterPage() {
   };
 
   const updateQty = (partId: number, delta: number) => {
+    setErrorMsg(null);
     const existing = cart.find((it) => it.part.id === partId);
     if (!existing) return;
 
@@ -63,7 +67,7 @@ export default function SalesCounterPage() {
     if (newQty <= 0) {
       setCart(cart.filter((it) => it.part.id !== partId));
     } else if (newQty > available) {
-      alert(`สินค้าคงเหลือพร้อมขายมีเพียง ${available} หน่วย`);
+      setErrorMsg(`สินค้าคงเหลือพร้อมขายมีเพียง ${available} หน่วย`);
     } else {
       setCart(cart.map((it) => (it.part.id === partId ? { ...it, qty: newQty } : it)));
     }
@@ -75,11 +79,28 @@ export default function SalesCounterPage() {
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
+    setErrorMsg(null);
+
+    const nameErr = validatePersonName(customerName, 'ชื่อลูกค้า');
+    if (nameErr) {
+      setErrorMsg(nameErr);
+      return;
+    }
+
+    const phoneErr = validatePhone(customerPhone, {
+      allowWalkInDash: true,
+      label: 'เบอร์โทรติดต่อ',
+    });
+    if (phoneErr) {
+      setErrorMsg(phoneErr);
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await apiCompleteCounterSale(
-        customerName,
-        customerPhone,
+        customerName.trim(),
+        customerPhone.trim() || '-',
         cart.map((it) => ({
           partId: it.part.id,
           qty: it.qty,
@@ -89,10 +110,9 @@ export default function SalesCounterPage() {
       );
       setCompletedInvoice(res.invoice);
       setCart([]);
-      // Refresh parts
       apiGetParts().then(setParts);
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการขายหน้าร้าน');
+      setErrorMsg(err.message || 'เกิดข้อผิดพลาดในการขายหน้าร้าน');
     } finally {
       setLoading(false);
     }
@@ -159,6 +179,7 @@ export default function SalesCounterPage() {
                 type="text"
                 placeholder="ค้นหารหัส SKU, ชื่ออะไหล่, หรือหมวดหมู่..."
                 value={search}
+                maxLength={80}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-purple-500"
               />
@@ -233,24 +254,46 @@ export default function SalesCounterPage() {
               </span>
             </div>
 
+            {errorMsg && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             {/* Customer Inputs */}
             <div className="space-y-2 text-xs">
               <div>
-                <label className="block text-slate-600 font-semibold mb-0.5">ชื่อลูกค้า</label>
+                <label className="block text-slate-600 font-semibold mb-0.5">
+                  ชื่อลูกค้า <span className="text-slate-400 font-normal">(ห้ามใส่ตัวเลข)</span>
+                </label>
                 <input
                   type="text"
+                  maxLength={100}
+                  placeholder="เช่น ลูกค้าทั่วไป (Walk-in)"
                   value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
+                  onChange={(e) => {
+                    setErrorMsg(null);
+                    setCustomerName(sanitizePersonName(e.target.value));
+                  }}
                   className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg"
                 />
               </div>
               <div>
-                <label className="block text-slate-600 font-semibold mb-0.5">เบอร์โทรติดต่อ</label>
+                <label className="block text-slate-600 font-semibold mb-0.5">
+                  เบอร์โทรติดต่อ <span className="text-slate-400 font-normal">(เฉพาะตัวเลข หรือ - )</span>
+                </label>
                 <input
-                  type="text"
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={12}
+                  placeholder="เช่น 081-234-5678 หรือ -"
                   value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg"
+                  onChange={(e) => {
+                    setErrorMsg(null);
+                    setCustomerPhone(sanitizePhone(e.target.value));
+                  }}
+                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-mono"
                 />
               </div>
             </div>
@@ -271,6 +314,7 @@ export default function SalesCounterPage() {
 
                     <div className="flex items-center gap-1.5">
                       <button
+                        type="button"
                         onClick={() => updateQty(it.part.id, -1)}
                         className="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 flex items-center justify-center font-bold"
                       >
@@ -278,6 +322,7 @@ export default function SalesCounterPage() {
                       </button>
                       <span className="w-6 text-center font-mono font-bold">{it.qty}</span>
                       <button
+                        type="button"
                         onClick={() => updateQty(it.part.id, 1)}
                         className="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 flex items-center justify-center font-bold"
                       >

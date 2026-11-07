@@ -2,14 +2,14 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, UserRole } from './types';
-import { apiLogin, setStoredToken } from './api';
+import { apiLogin, ApiError, setStoredToken } from './api';
 import { INITIAL_USERS } from './mock-data';
 
 interface AuthContextType {
   user: User | null;
   role: UserRole;
   token: string | null;
-  login: (username: string, role?: UserRole) => Promise<void>;
+  login: (username: string, role?: UserRole, password?: string) => Promise<void>;
   switchRole: (newRole: UserRole) => void;
   logout: () => void;
   isInitialized: boolean;
@@ -23,7 +23,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    // Restore session if available
     const savedUser = localStorage.getItem('garage_user');
     const savedToken = localStorage.getItem('garage_auth_token');
 
@@ -33,11 +32,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(parsed);
         setToken(savedToken);
       } catch {
-        // Fallback default user: Front Desk
         setDefaultUser('FRONT_DESK');
       }
     } else {
-      // Default initial role for easy demo
       setDefaultUser('FRONT_DESK');
     }
     setIsInitialized(true);
@@ -52,14 +49,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('garage_user', JSON.stringify(matched));
   };
 
-  const login = async (username: string, role?: UserRole) => {
+  const login = async (username: string, role?: UserRole, password = 'password123') => {
     try {
-      const res = await apiLogin(username, 'password123', role);
+      const res = await apiLogin(username, password, role);
       setUser(res.user);
       setToken(res.token);
       setStoredToken(res.token);
       localStorage.setItem('garage_user', JSON.stringify(res.user));
-    } catch {
+    } catch (err) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
       setDefaultUser(role || 'FRONT_DESK');
     }
   };

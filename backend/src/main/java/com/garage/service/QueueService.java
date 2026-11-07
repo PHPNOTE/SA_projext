@@ -1,6 +1,7 @@
 package com.garage.service;
 
 import com.garage.util.DocNo;
+import com.garage.util.InputValidator;
 import com.garage.dto.RepairDtos.RegisterRepairRequest;
 import com.garage.exception.GarageException.*;
 import com.garage.model.entity.*;
@@ -72,6 +73,22 @@ public class QueueService {
         String name = req.customerName().trim();
         String plate = req.licensePlate().trim();
 
+        InputValidator.requirePersonName(name, "Customer name");
+        InputValidator.requirePhone(phone, false);
+        InputValidator.requireLicensePlate(plate);
+        if (req.model() != null && !req.model().trim().isEmpty()) {
+            InputValidator.requireMeaningfulText(req.model(), "Vehicle model");
+        }
+        if (req.complaint() != null && !req.complaint().trim().isEmpty()) {
+            InputValidator.requireMeaningfulText(req.complaint(), "Symptoms/complaint");
+        }
+        if ("PRIORITY".equalsIgnoreCase(req.queueClass())) {
+            InputValidator.requireMeaningfulText(req.priorityReason(), "Priority reason");
+        }
+        if (req.insurerName() != null && !req.insurerName().trim().isEmpty()) {
+            InputValidator.requireOrgName(req.insurerName(), "Insurer name");
+        }
+
         Customer customer = customerRepository.findByPhone(phone).orElseGet(() -> {
             Customer newCust = new Customer(null, name, phone, req.customerNote());
             return customerRepository.save(newCust);
@@ -83,7 +100,7 @@ public class QueueService {
                 customer.customerId(),
                 plate,
                 req.make() != null ? req.make() : "Toyota",
-                req.model() != null ? req.model() : "Unknown",
+                req.model() != null ? req.model().trim() : "Unknown",
                 req.year() != null ? req.year() : 2022
             );
             return vehicleRepository.save(newVeh);
@@ -117,7 +134,7 @@ public class QueueService {
             null,
             ticketNo,
             vehicle.vehicleId(),
-            req.complaint() != null ? req.complaint() : "ตรวจเช็คตามระยะ",
+            req.complaint() != null ? req.complaint().trim() : "ตรวจเช็คตามระยะ",
             queueClass,
             priorityReason,
             queuedAt,
@@ -125,8 +142,8 @@ public class QueueService {
             null,
             null,
             null,
-            req.insurerName(),
-            req.claimNo(),
+            req.insurerName() != null ? req.insurerName().trim() : null,
+            req.claimNo() != null ? req.claimNo().trim() : null,
             docsReceived,
             insuranceCovered,
             userId != null ? userId : 2L,
@@ -333,6 +350,7 @@ public class QueueService {
         if (priorityReason == null || priorityReason.trim().isEmpty()) {
             throw new ValidationException("Priority reason required");
         }
+        InputValidator.requireMeaningfulText(priorityReason, "Priority reason");
 
         RepairOrder ro = repairOrderRepository.findById(repairId)
             .orElseThrow(() -> new ResourceNotFoundException("Repair order not found: " + repairId));

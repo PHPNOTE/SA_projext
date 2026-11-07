@@ -4,18 +4,26 @@ import React, { useEffect, useState } from 'react';
 import { apiGetParts, apiCreatePart, apiDeletePart } from '@/lib/api';
 import { Part } from '@/lib/types';
 import {
+  blockInvalidDecimalKeys,
+  blockInvalidIntKeys,
+  sanitizeCodeUpper,
+  sanitizeGeneralText,
+  validateMeaningfulText,
+  validateShelfLocation,
+  validateSku,
+} from '@/lib/validation';
+import {
   Boxes,
   Search,
   Filter,
   Plus,
   AlertTriangle,
-  MapPin,
   CheckCircle2,
   DollarSign,
   TrendingDown,
   RefreshCw,
 } from 'lucide-react';
-import { Badge, StatusBadge } from '@/components/ui/Badge';
+import { StatusBadge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { StatCard } from '@/components/ui/StatCard';
 
@@ -25,27 +33,19 @@ export default function WarehouseInventoryPage() {
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [partError, setPartError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [newPart, setNewPart] = useState({
     partCode: '',
     name: '',
     category: 'FLUIDS',
     shelfLocation: 'A-01-01',
-    unitPrice: 1000,
-    costPrice: 650,
-    reorderLevel: 10,
+    unitPrice: '1000',
+    costPrice: '650',
+    reorderLevel: '10',
     description: '',
     isActive: true,
   });
-
-  const handleDeletePart = async (part: Part) => {
-    if (!confirm(`ยืนยันการลบอะไหล่ ${part.partCode}? (ลบได้เฉพาะรายการที่ไม่เคยมีการเคลื่อนไหวสต็อก)`)) return;
-    try {
-      await apiDeletePart(part.id);
-      loadData();
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
 
   const loadData = async () => {
     setLoading(true);
@@ -60,6 +60,17 @@ export default function WarehouseInventoryPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleDeletePart = async (part: Part) => {
+    if (!confirm(`ยืนยันการลบอะไหล่ ${part.partCode}? (ลบได้เฉพาะรายการที่ไม่เคยมีการเคลื่อนไหวสต็อก)`)) return;
+    try {
+      await apiDeletePart(part.id);
+      setMsg({ type: 'success', text: `ลบรายการอะไหล่ ${part.partCode} เรียบร้อยแล้ว` });
+      loadData();
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err.message || 'ไม่สามารถลบรายการอะไหล่ได้' });
+    }
+  };
 
   const filtered = parts.filter((p) => {
     const matchesSearch =
@@ -76,13 +87,78 @@ export default function WarehouseInventoryPage() {
 
   const handleCreatePart = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPartError(null);
+
+    const skuErr = validateSku(newPart.partCode);
+    if (skuErr) {
+      setPartError(skuErr);
+      return;
+    }
+
+    const nameErr = validateMeaningfulText(newPart.name, 'ชื่ออะไหล่', 2);
+    if (nameErr) {
+      setPartError(nameErr);
+      return;
+    }
+
+    const shelfErr = validateShelfLocation(newPart.shelfLocation);
+    if (shelfErr) {
+      setPartError(shelfErr);
+      return;
+    }
+
+    const costNum = newPart.costPrice.trim() === '' ? NaN : Number(newPart.costPrice);
+    const priceNum = newPart.unitPrice.trim() === '' ? NaN : Number(newPart.unitPrice);
+    const reorderNum = newPart.reorderLevel.trim() === '' ? NaN : Number(newPart.reorderLevel);
+
+    if (!Number.isFinite(costNum) || costNum < 0 || costNum > 1000000) {
+      setPartError('ราคาต้นทุน (Cost) ต้องเป็นตัวเลข 0 ขึ้นไป และไม่เกิน 1,000,000 บาท');
+      return;
+    }
+    if (!Number.isFinite(priceNum) || priceNum <= 0 || priceNum > 1000000) {
+      setPartError('ราคาขายปลีก (Price) ต้องมากกว่า 0 และไม่เกิน 1,000,000 บาท');
+      return;
+    }
+    if (priceNum < costNum) {
+      setPartError('ราคาขายปลีกต้องไม่ต่ำกว่าราคาต้นทุน');
+      return;
+    }
+    if (!Number.isInteger(reorderNum) || reorderNum < 0 || reorderNum > 100000) {
+      setPartError('จุดสั่งซื้อซ้ำ (Reorder Level) ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป');
+      return;
+    }
+
     try {
-      await apiCreatePart(newPart);
-      alert('เพิ่มรายการอะไหล่เข้าสู่ฐานข้อมูลสำเร็จ!');
+      await apiCreatePart({
+        partCode: newPart.partCode.trim().toUpperCase(),
+        name: newPart.name.trim(),
+        category: newPart.category,
+        shelfLocation: newPart.shelfLocation.trim().toUpperCase(),
+        unitPrice: priceNum,
+        costPrice: costNum,
+        reorderLevel: reorderNum,
+        description: newPart.description,
+        isActive: true,
+      });
+      setMsg({
+        type: 'success',
+        text: `เพิ่ม/อัปเดตรายการอะไหล่ ${newPart.partCode.trim().toUpperCase()} สำเร็จ`,
+      });
       setAddModalOpen(false);
+      setNewPart({
+        partCode: '',
+        name: '',
+        category: 'FLUIDS',
+        shelfLocation: 'A-01-01',
+        unitPrice: '1000',
+        costPrice: '650',
+        reorderLevel: '10',
+        description: '',
+        isActive: true,
+      });
       loadData();
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการเพิ่มอะไหล่');
+      setPartError(err.message || 'เกิดข้อผิดพลาดในการเพิ่มอะไหล่');
     }
   };
 
@@ -111,7 +187,10 @@ export default function WarehouseInventoryPage() {
             <span>รีเฟรช</span>
           </button>
           <button
-            onClick={() => setAddModalOpen(true)}
+            onClick={() => {
+              setPartError(null);
+              setAddModalOpen(true);
+            }}
             className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-500/20"
           >
             <Plus className="w-4 h-4" />
@@ -119,6 +198,28 @@ export default function WarehouseInventoryPage() {
           </button>
         </div>
       </div>
+
+      {msg && (
+        <div
+          className={`p-4 rounded-xl border text-xs font-medium flex items-center justify-between ${
+            msg.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-700'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {msg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600" />
+            )}
+            <span>{msg.text}</span>
+          </div>
+          <button onClick={() => setMsg(null)} className="font-bold">
+            ปิด
+          </button>
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -158,6 +259,7 @@ export default function WarehouseInventoryPage() {
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
           <input
             type="text"
+            maxLength={80}
             placeholder="ค้นหา SKU, ชื่ออะไหล่, ตำแหน่งวาง..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -258,15 +360,28 @@ export default function WarehouseInventoryPage() {
         title="เพิ่มรายการอะไหล่ใหม่ (Add Spare Part Master)"
       >
         <form onSubmit={handleCreatePart} className="space-y-4 text-xs">
+          {partError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+              <span>{partError}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">รหัสอะไหล่ (SKU Code)</label>
+              <label className="block font-semibold text-slate-700 mb-1">
+                รหัสอะไหล่ (SKU Code) <span className="text-rose-500">*</span>
+              </label>
               <input
                 type="text"
                 required
+                maxLength={30}
                 placeholder="เช่น BRK-PAD-HON02"
                 value={newPart.partCode}
-                onChange={(e) => setNewPart({ ...newPart, partCode: e.target.value })}
+                onChange={(e) => {
+                  setPartError(null);
+                  setNewPart({ ...newPart, partCode: sanitizeCodeUpper(e.target.value, 30) });
+                }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono uppercase"
               />
             </div>
@@ -289,13 +404,19 @@ export default function WarehouseInventoryPage() {
           </div>
 
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">ชื่ออะไหล่และรุ่นที่รองรับ</label>
+            <label className="block font-semibold text-slate-700 mb-1">
+              ชื่ออะไหล่และรุ่นที่รองรับ <span className="text-rose-500">*</span>
+            </label>
             <input
               type="text"
               required
+              maxLength={150}
               placeholder="เช่น ผ้าเบรกหลัง Honda Civic FE (Ceramic)"
               value={newPart.name}
-              onChange={(e) => setNewPart({ ...newPart, name: e.target.value })}
+              onChange={(e) => {
+                setPartError(null);
+                setNewPart({ ...newPart, name: sanitizeGeneralText(e.target.value, 150) });
+              }}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl"
             />
           </div>
@@ -306,19 +427,30 @@ export default function WarehouseInventoryPage() {
               <input
                 type="text"
                 required
+                maxLength={20}
                 placeholder="เช่น B-02-04"
                 value={newPart.shelfLocation}
-                onChange={(e) => setNewPart({ ...newPart, shelfLocation: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono"
+                onChange={(e) => {
+                  setPartError(null);
+                  setNewPart({ ...newPart, shelfLocation: sanitizeCodeUpper(e.target.value, 20) });
+                }}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono uppercase"
               />
             </div>
             <div>
               <label className="block font-semibold text-slate-700 mb-1">ราคาต้นทุน (Cost)</label>
               <input
                 type="number"
+                min="0"
+                max="1000000"
+                step="0.01"
                 required
                 value={newPart.costPrice}
-                onChange={(e) => setNewPart({ ...newPart, costPrice: Number(e.target.value) })}
+                onKeyDown={blockInvalidDecimalKeys}
+                onChange={(e) => {
+                  setPartError(null);
+                  setNewPart({ ...newPart, costPrice: e.target.value });
+                }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono"
               />
             </div>
@@ -326,9 +458,16 @@ export default function WarehouseInventoryPage() {
               <label className="block font-semibold text-slate-700 mb-1">ราคาขายปลีก (Price)</label>
               <input
                 type="number"
+                min="0.01"
+                max="1000000"
+                step="0.01"
                 required
                 value={newPart.unitPrice}
-                onChange={(e) => setNewPart({ ...newPart, unitPrice: Number(e.target.value) })}
+                onKeyDown={blockInvalidDecimalKeys}
+                onChange={(e) => {
+                  setPartError(null);
+                  setNewPart({ ...newPart, unitPrice: e.target.value });
+                }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono"
               />
             </div>
@@ -338,9 +477,16 @@ export default function WarehouseInventoryPage() {
             <label className="block font-semibold text-slate-700 mb-1">จุดสั่งซื้อซ้ำ (Reorder Level)</label>
             <input
               type="number"
+              min="0"
+              max="100000"
+              step="1"
               required
               value={newPart.reorderLevel}
-              onChange={(e) => setNewPart({ ...newPart, reorderLevel: Number(e.target.value) })}
+              onKeyDown={blockInvalidIntKeys}
+              onChange={(e) => {
+                setPartError(null);
+                setNewPart({ ...newPart, reorderLevel: e.target.value.replace(/[^0-9]/g, '') });
+              }}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono"
             />
           </div>

@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { UserRole } from '@/lib/types';
-import { Wrench, Shield, Lock, User as UserIcon, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { sanitizeUsername, validateUsername } from '@/lib/validation';
+import { Wrench, Lock, User as UserIcon, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('password123');
   const [selectedRole, setSelectedRole] = useState<UserRole>('FRONT_DESK');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const roleProfiles: { role: UserRole; label: string; desc: string; defaultUser: string; color: string }[] = [
     {
@@ -56,12 +58,31 @@ export default function LoginPage() {
     setSelectedRole(r);
     setUsername(user);
     setPassword('password123');
+    setErrorMsg(null);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
+
+    const userErr = validateUsername(username);
+    if (userErr) {
+      setErrorMsg(userErr);
+      return;
+    }
+    if (!password.trim()) {
+      setErrorMsg('กรุณากรอกรหัสผ่าน');
+      return;
+    }
+
     setLoading(true);
-    await login(username, selectedRole);
+    try {
+      await login(username.trim(), selectedRole, password);
+    } catch (err: any) {
+      setLoading(false);
+      setErrorMsg(err.message || 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีถูกระงับการใช้งาน');
+      return;
+    }
     setLoading(false);
 
     switch (selectedRole) {
@@ -131,14 +152,27 @@ export default function LoginPage() {
 
         {/* Login Form */}
         <form onSubmit={handleLogin} className="space-y-4">
+          {errorMsg && (
+            <div className="p-3.5 rounded-xl bg-rose-950/70 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">ชื่อผู้ใช้งาน (Username)</label>
+            <label className="block text-xs font-medium text-slate-300 mb-1">
+              ชื่อผู้ใช้งาน (Username — เฉพาะ a-z, 0-9, _, .)
+            </label>
             <div className="relative">
               <UserIcon className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
               <input
                 type="text"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                maxLength={30}
+                onChange={(e) => {
+                  setUsername(sanitizeUsername(e.target.value));
+                  setErrorMsg(null);
+                }}
                 required
                 className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -152,7 +186,11 @@ export default function LoginPage() {
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                maxLength={64}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setErrorMsg(null);
+                }}
                 required
                 className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />

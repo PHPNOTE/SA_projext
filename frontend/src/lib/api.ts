@@ -79,6 +79,19 @@ export function setStoredToken(token: string | null) {
   }
 }
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  isMutation: boolean;
+  constructor(message: string, status: number, code?: string, isMutation = false) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.isMutation = isMutation;
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
   const headers: Record<string, string> = {
@@ -100,7 +113,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
     if (!res.ok) {
       const errorBody = await res.json().catch(() => ({ message: res.statusText }));
-      throw new Error(errorBody.message || `HTTP ${res.status}: ${res.statusText}`);
+      const method = (options.method || 'GET').toUpperCase();
+      const msg = errorBody.error || errorBody.message || `HTTP ${res.status}: ${res.statusText}`;
+      throw new ApiError(msg, res.status, errorBody.code, method !== 'GET');
     }
 
     return await res.json();
@@ -114,11 +129,22 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // ---------------- AUTH API ----------------
 export async function apiLogin(username: string, password: string, role?: UserRole): Promise<{ token: string; user: User }> {
   try {
-    return await request('/auth/login', {
+    const res = await request<any>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password, role }),
     });
-  } catch {
+    const rawUser = res.user || {};
+    const mappedUser: User = {
+      id: rawUser.id ?? rawUser.userId ?? 1,
+      username: rawUser.username || username,
+      fullName: rawUser.fullName || rawUser.displayName || username,
+      role: rawUser.role || role || 'FRONT_DESK',
+      isActive: rawUser.isActive ?? true,
+    };
+    setStoredToken(res.token);
+    return { token: res.token, user: mappedUser };
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     // Fallback authentication
     const user = localStore.getUsers().find((u) => u.username.toLowerCase() === username.toLowerCase()) || {
       id: 99,
@@ -173,7 +199,8 @@ export async function apiGetQueue(): Promise<RepairOrder[]> {
   try {
     const list = await request<any[]>('/queue');
     return list.map((r) => mapRepairOrder(r));
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getRepairs().filter((r) => r.status === 'QUEUED' || r.status === 'IN_DIAGNOSIS' || r.status === 'ON_HOLD');
   }
 }
@@ -218,7 +245,8 @@ export async function apiCheckIn(data: {
       body: JSON.stringify(payload),
     });
     return mapRepairOrder(res, data);
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const count = localStore.getRepairs().length + 1;
     const pad = String(count).padStart(4, '0');
     const newOrder: RepairOrder = {
@@ -253,7 +281,8 @@ export async function apiCallNext(bayId: number, mechanicId: number): Promise<Re
       body: JSON.stringify({ bayId, mechanicId }),
     });
     return mapRepairOrder(res);
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const queued = localStore.getRepairs().find((r) => r.status === 'QUEUED');
     if (!queued) return null;
 
@@ -274,7 +303,8 @@ export async function apiGetRepairs(): Promise<RepairOrder[]> {
   try {
     const list = await request<any[]>('/repairs');
     return list.map((r) => mapRepairOrder(r));
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getRepairs();
   }
 }
@@ -283,7 +313,8 @@ export async function apiGetRepairById(id: number): Promise<RepairOrder | null> 
   try {
     const res = await request<any>(`/repairs/${id}`);
     return res ? mapRepairOrder(res) : null;
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getRepairs().find((r) => r.id === id) || null;
   }
 }
@@ -311,7 +342,8 @@ export async function apiUpdateRepairStatus(
       body: JSON.stringify(body),
     });
     return mapRepairOrder(res);
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const ro = localStore.getRepairs().find((r) => r.id === id);
     if (!ro) throw new Error('Repair order not found');
     ro.status = status;
@@ -341,7 +373,8 @@ export async function apiSubmitEstimate(
       method: 'POST',
       body: JSON.stringify({ repairId, lines }),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const ro = localStore.getRepairs().find((r) => r.id === repairId);
     if (ro) {
       ro.status = 'AWAITING_APPROVAL';
@@ -365,7 +398,8 @@ export async function apiApproveEstimate(
       method: 'POST',
       body: JSON.stringify({ decision, insuranceDocsReceived: docsReceived }),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const ro = localStore.getRepairs().find((r) => r.id === repairId);
     if (!ro) throw new Error('Repair order not found');
     if (decision === 'APPROVED') {
@@ -403,7 +437,8 @@ export async function apiGetParts(): Promise<Part[]> {
       reorderLevel: p.reorderLevel ?? 0,
       isActive: p.isActive ?? true,
     }));
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getParts();
   }
 }
@@ -435,7 +470,8 @@ export async function apiCreatePart(part: Omit<Part, 'id' | 'onHand' | 'reserved
       reorderLevel: res.reorderLevel ?? part.reorderLevel,
       isActive: res.isActive ?? true,
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const count = localStore.getParts().length + 1;
     const newPart: Part = {
       ...part,
@@ -465,7 +501,8 @@ export async function apiGetRequisitions(): Promise<PartRequest[]> {
       status: item.status || 'RESERVED',
       createdAt: item.createdAt || new Date().toISOString(),
     }));
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return [
       {
         id: 1,
@@ -530,7 +567,8 @@ export async function apiCreatePartRequest(data: { repairId: number; partId: num
       status: res.status || 'RESERVED',
       createdAt: res.createdAt || new Date().toISOString(),
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const p = localStore.getParts().find((x) => x.id === data.partId);
     return {
       id: Date.now(),
@@ -554,7 +592,8 @@ export async function apiIssueParts(requestId: number, partId: number, qty: numb
       method: 'POST',
       body: JSON.stringify({ requestId, partId, qty }),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     localStore.updatePart(partId, -qty, -qty);
     const p = localStore.getParts().find((x) => x.id === partId);
     localStore.addMovement({
@@ -577,7 +616,8 @@ export async function apiReturnParts(requestId: number, partId: number, qty: num
       method: 'POST',
       body: JSON.stringify({ requestId, partId, qty, reason }),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     localStore.updatePart(partId, qty, 0);
     const p = localStore.getParts().find((x) => x.id === partId);
     localStore.addMovement({
@@ -600,7 +640,8 @@ export async function apiAdjustStock(partId: number, deltaOnHand: number, reason
       method: 'POST',
       body: JSON.stringify({ partId, delta: deltaOnHand, reason }),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     localStore.updatePart(partId, deltaOnHand, 0);
     const p = localStore.getParts().find((x) => x.id === partId);
     localStore.addMovement({
@@ -635,7 +676,8 @@ export async function apiGetStockLedger(): Promise<StockMovement[]> {
       userName: m.userName || 'เจ้าหน้าที่คลัง',
       createdAt: m.createdAt || new Date().toISOString(),
     }));
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getMovements();
   }
 }
@@ -643,7 +685,8 @@ export async function apiGetStockLedger(): Promise<StockMovement[]> {
 export async function apiGetLowStock(): Promise<Part[]> {
   try {
     return await request<Part[]>('/warehouse/low-stock');
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getParts().filter((p) => p.onHand <= p.reorderLevel);
   }
 }
@@ -652,7 +695,8 @@ export async function apiGetLowStock(): Promise<Part[]> {
 export async function apiGetPurchaseOrders(): Promise<PurchaseOrder[]> {
   try {
     return await request<PurchaseOrder[]>('/purchase-orders');
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getPurchaseOrders();
   }
 }
@@ -665,7 +709,8 @@ export async function apiCreatePurchaseOrder(supplierName: string, lines: { part
     });
     const poId = created?.purchaseOrder?.poId ?? created?.poId ?? created?.id;
     return await request<PurchaseOrder>(`/purchase-orders/${poId}`);
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const count = localStore.getPurchaseOrders().length + 1;
     const totalCost = lines.reduce((acc, l) => acc + l.qtyOrdered * l.unitCost, 0);
     const newPO: PurchaseOrder = {
@@ -700,7 +745,8 @@ export async function apiReceivePurchaseOrder(poId: number, receivedLines: { poL
       method: 'POST',
       body: JSON.stringify({ lines: receivedLines }),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const po = localStore.getPurchaseOrders().find((x) => x.id === poId);
     if (po) {
       po.status = 'RECEIVED';
@@ -838,7 +884,8 @@ export async function apiCompleteCounterSale(
       return { invoice: mapInvoice(res) };
     }
     return { invoice: mapInvoice(res) };
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const subtotal = items.reduce((acc, it) => acc + it.qty * it.unitPrice, 0);
     const vat = +(subtotal * 0.07).toFixed(2);
     const total = +(subtotal + vat).toFixed(2);
@@ -907,7 +954,8 @@ export async function apiGetInvoices(): Promise<Invoice[]> {
   try {
     const list = await request<any[]>('/invoices');
     return Array.isArray(list) ? list.map(mapInvoice) : [];
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getInvoices();
   }
 }
@@ -920,7 +968,8 @@ export async function apiGetInvoiceById(id: number): Promise<Invoice | null> {
       return mapInvoice({ ...inv.invoice, lines: inv.lines });
     }
     return mapInvoice(inv);
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getInvoices().find((x) => x.id === id) || null;
   }
 }
@@ -935,7 +984,8 @@ export async function apiCreateInvoiceForRepair(repairId: number): Promise<Invoi
       return mapInvoice({ ...res.invoice, lines: res.lines });
     }
     return mapInvoice(res);
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const ro = localStore.getRepairs().find((x) => x.id === repairId);
     if (!ro) throw new Error('Repair order not found');
 
@@ -1000,7 +1050,8 @@ export async function apiPayInvoice(
       method: 'POST',
       body: JSON.stringify({ amount, method, payerType }),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const inv = localStore.getInvoices().find((x) => x.id === invoiceId);
     if (!inv) throw new Error('Invoice not found');
 
@@ -1049,7 +1100,8 @@ export async function apiGetBays(): Promise<RepairBay[]> {
       isActive: b.isActive ?? true,
       currentRepairId: b.currentRepairId || b.currentRoId || null,
     }));
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getBays();
   }
 }
@@ -1060,7 +1112,8 @@ export async function apiUpdateBay(id: number, data: Partial<RepairBay>): Promis
       method: 'PUT',
       body: JSON.stringify(data),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const bay = localStore.getBays().find((b) => b.id === id);
     if (bay) {
       Object.assign(bay, data);
@@ -1080,7 +1133,8 @@ export async function apiGetUsers(): Promise<User[]> {
       role: u.role,
       isActive: u.isActive ?? true,
     }));
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     return localStore.getUsers();
   }
 }
@@ -1091,7 +1145,8 @@ export async function apiCreateUser(user: { username: string; fullName: string; 
       method: 'POST',
       body: JSON.stringify(user),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const newUser: User = {
       id: localStore.getUsers().length + 1,
       username: user.username,
@@ -1107,7 +1162,8 @@ export async function apiCreateUser(user: { username: string; fullName: string; 
 export async function apiDeactivateUser(id: number): Promise<any> {
   try {
     return await request(`/admin/users/${id}/deactivate`, { method: 'POST' });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     const u = localStore.getUsers().find((x) => x.id === id);
     if (u) u.isActive = false;
     return { success: true };
@@ -1141,7 +1197,8 @@ export async function apiGetRepairSummaryReport(
       totalRevenue: res.totalRevenue ?? 0,
       records: Array.isArray(res.records) ? res.records.map(mapRepairOrder) : (Array.isArray(res.items) ? res.items.map(mapRepairOrder) : []),
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     let list = localStore.getRepairs();
     if (status && status !== 'ALL') {
       list = list.filter((r) => r.status === status);
@@ -1195,7 +1252,8 @@ export async function apiGetInventoryUsageReport(
       topConsumedParts: Array.isArray(res.topConsumedParts) ? res.topConsumedParts : [],
       records: Array.isArray(res.records) ? res.records : (Array.isArray(res.items) ? res.items : []),
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.isMutation) throw err;
     let parts = localStore.getParts();
     if (categoryFilter && categoryFilter !== 'ALL') {
       parts = parts.filter((p) => p.category === categoryFilter);

@@ -6,16 +6,12 @@ import { RepairOrder, RepairBay } from '@/lib/types';
 import {
   Layers,
   PhoneCall,
-  Clock,
   Car,
-  AlertTriangle,
   RefreshCw,
-  CheckCircle2,
-  Wrench,
-  PauseCircle,
   XCircle,
+  AlertTriangle,
 } from 'lucide-react';
-import { Badge, StatusBadge } from '@/components/ui/Badge';
+import { StatusBadge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 
 export default function QueueBoardPage() {
@@ -25,7 +21,7 @@ export default function QueueBoardPage() {
   const [callModalOpen, setCallModalOpen] = useState(false);
   const [selectedBayId, setSelectedBayId] = useState<number>(1);
   const [selectedMechanicId, setSelectedMechanicId] = useState<number>(3);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -33,7 +29,7 @@ export default function QueueBoardPage() {
       const [q, b] = await Promise.all([apiGetQueue(), apiGetBays()]);
       setQueue(q);
       setBays(b);
-      const freeBay = b.find((x) => !x.isOccupied);
+      const freeBay = b.find((x) => !x.isOccupied && x.isActive);
       if (freeBay) setSelectedBayId(freeBay.id);
     } finally {
       setLoading(false);
@@ -46,28 +42,36 @@ export default function QueueBoardPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const freeActiveBays = bays.filter((b) => !b.isOccupied && b.isActive);
+
+  const openCallModal = () => {
+    if (freeActiveBays.length > 0) {
+      setSelectedBayId(freeActiveBays[0].id);
+    }
+    setCallModalOpen(true);
+  };
+
   const handleCallNext = async () => {
+    if (freeActiveBays.length === 0) {
+      setActionMessage({ type: 'error', text: 'ไม่มีช่องบริการว่างในขณะนี้ กรุณารอปล่อยช่องซ่อมก่อนเรียกคิว' });
+      setCallModalOpen(false);
+      return;
+    }
     try {
       const called = await apiCallNext(selectedBayId, selectedMechanicId);
       if (called) {
-        setActionMessage(`เรียกคิวสำเร็จ: ${called.ticketNumber} (${called.licensePlate}) เข้าสู่ช่อง ${called.assignedBayNumber || 'ซ่อม'}`);
+        setActionMessage({
+          type: 'success',
+          text: `เรียกคิวสำเร็จ: ${called.ticketNumber} (${called.licensePlate}) เข้าสู่ช่อง ${called.assignedBayNumber || 'ซ่อม'}`,
+        });
       } else {
-        setActionMessage('ไม่มีรถรอในแถวคอยขณะนี้');
+        setActionMessage({ type: 'error', text: 'ไม่มีรถรอในแถวคอยขณะนี้' });
       }
       setCallModalOpen(false);
       loadData();
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการเรียกคิว');
-    }
-  };
-
-  const handleHold = async (roId: number) => {
-    if (!confirm('ยืนยันการพักงานรออะไหล่ / ตัดสินใจ (ON_HOLD)? ช่องซ่อมจะถูกปล่อยว่าง')) return;
-    try {
-      await apiUpdateRepairStatus(roId, 'ON_HOLD', 'พักงานรอการยืนยันอะไหล่');
-      loadData();
-    } catch (err: any) {
-      alert(err.message);
+      setActionMessage({ type: 'error', text: err.message || 'เกิดข้อผิดพลาดในการเรียกคิว' });
+      setCallModalOpen(false);
     }
   };
 
@@ -75,9 +79,10 @@ export default function QueueBoardPage() {
     if (!confirm('ยืนยันการยกเลิกใบสั่งซ่อมนี้?')) return;
     try {
       await apiUpdateRepairStatus(roId, 'CANCELLED', 'ลูกค้ายกเลิกคิวบริการ');
+      setActionMessage({ type: 'success', text: 'ยกเลิกคิวบริการเรียบร้อยแล้ว' });
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      setActionMessage({ type: 'error', text: err.message || 'ไม่สามารถยกเลิกคิวบริการได้' });
     }
   };
 
@@ -106,8 +111,9 @@ export default function QueueBoardPage() {
             <span>รีเฟรช</span>
           </button>
           <button
-            onClick={() => setCallModalOpen(true)}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md shadow-blue-500/20 active:scale-95 transition-transform"
+            onClick={openCallModal}
+            disabled={queue.length === 0}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md shadow-blue-500/20 active:scale-95 transition-transform disabled:opacity-40"
           >
             <PhoneCall className="w-4 h-4" />
             <span>เรียกคิวถัดไป (Call Next)</span>
@@ -116,9 +122,18 @@ export default function QueueBoardPage() {
       </div>
 
       {actionMessage && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-center justify-between">
-          <span>{actionMessage}</span>
-          <button onClick={() => setActionMessage(null)} className="text-emerald-600 font-bold">
+        <div
+          className={`p-4 rounded-xl border text-xs font-medium flex items-center justify-between ${
+            actionMessage.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-700'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {actionMessage.type === 'error' && <AlertTriangle className="w-4 h-4 text-rose-600" />}
+            <span>{actionMessage.text}</span>
+          </div>
+          <button onClick={() => setActionMessage(null)} className="font-bold">
             ปิด
           </button>
         </div>
@@ -134,7 +149,9 @@ export default function QueueBoardPage() {
             <div
               key={bay.id}
               className={`rounded-2xl border p-4 transition-all ${
-                bay.isOccupied
+                !bay.isActive
+                  ? 'bg-slate-100 border-slate-200 opacity-70'
+                  : bay.isOccupied
                   ? 'bg-rose-50/60 border-rose-200'
                   : 'bg-emerald-50/60 border-emerald-200'
               }`}
@@ -143,12 +160,14 @@ export default function QueueBoardPage() {
                 <span className="font-mono font-black text-xs text-slate-800">{bay.bayNumber}</span>
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    bay.isOccupied
+                    !bay.isActive
+                      ? 'bg-slate-200 text-slate-600'
+                      : bay.isOccupied
                       ? 'bg-rose-100 text-rose-700'
                       : 'bg-emerald-100 text-emerald-700'
                   }`}
                 >
-                  {bay.isOccupied ? 'มีรถซ่อมอยู่' : 'ว่างพร้อมรับรถ'}
+                  {!bay.isActive ? 'ปิดปรับปรุง' : bay.isOccupied ? 'มีรถซ่อมอยู่' : 'ว่างพร้อมรับรถ'}
                 </span>
               </div>
               <p className="text-xs font-bold text-slate-800 mt-2 line-clamp-1">{bay.name}</p>
@@ -237,24 +256,14 @@ export default function QueueBoardPage() {
                     {item.status === 'QUEUED' && (
                       <>
                         <button
-                          onClick={() => {
-                            setSelectedBayId(1);
-                            setCallModalOpen(true);
-                          }}
+                          onClick={openCallModal}
                           className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold border border-blue-200"
                         >
                           ส่งมอบช่องซ่อม
                         </button>
                         <button
-                          onClick={() => handleHold(item.id)}
-                          title="พักงาน"
-                          className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg"
-                        >
-                          <PauseCircle className="w-4 h-4" />
-                        </button>
-                        <button
                           onClick={() => handleCancel(item.id)}
-                          title="ยกเลิก"
+                          title="ยกเลิกคิว"
                           className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
                         >
                           <XCircle className="w-4 h-4" />
@@ -280,6 +289,13 @@ export default function QueueBoardPage() {
             ระบบจะเลือกคิวอันดับสูงสุดตามเกณฑ์ Priority และเวลาที่รอคอย (&gt; 120 นาที) และล็อคช่องซ่อมที่เลือก
           </p>
 
+          {freeActiveBays.length === 0 && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              <span>ขณะนี้ช่องบริการซ่อมทุกช่องไม่ว่างหรือปิดปรับปรุง กรุณารอปล่อยช่องซ่อมก่อน</span>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               เลือกช่องบริการซ่อม (Repair Bay)
@@ -290,8 +306,9 @@ export default function QueueBoardPage() {
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium"
             >
               {bays.map((b) => (
-                <option key={b.id} value={b.id} disabled={b.isOccupied}>
-                  {b.bayNumber} - {b.name} {b.isOccupied ? '(มีรถซ่อมอยู่)' : '(ว่าง)'}
+                <option key={b.id} value={b.id} disabled={b.isOccupied || !b.isActive}>
+                  {b.bayNumber} - {b.name}{' '}
+                  {!b.isActive ? '(ปิดปรับปรุง)' : b.isOccupied ? '(มีรถซ่อมอยู่)' : '(ว่าง)'}
                 </option>
               ))}
             </select>
@@ -320,7 +337,8 @@ export default function QueueBoardPage() {
             </button>
             <button
               onClick={handleCallNext}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20"
+              disabled={freeActiveBays.length === 0}
+              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 disabled:opacity-50"
             >
               ยืนยันเรียกคิว (Confirm Call Next)
             </button>

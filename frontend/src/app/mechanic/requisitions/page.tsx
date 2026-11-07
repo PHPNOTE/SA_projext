@@ -3,18 +3,21 @@
 import React, { useEffect, useState } from 'react';
 import { apiGetRepairs, apiGetParts, apiGetRequisitions, apiCreatePartRequest } from '@/lib/api';
 import { RepairOrder, Part, PartRequest } from '@/lib/types';
-import { PackagePlus, Boxes, AlertTriangle, CheckCircle2, Search, ArrowRight } from 'lucide-react';
-import { StatusBadge, Badge } from '@/components/ui/Badge';
+import { blockInvalidIntKeys } from '@/lib/validation';
+import { PackagePlus, Boxes, AlertTriangle, CheckCircle2, AlertCircle } from 'lucide-react';
+import { StatusBadge } from '@/components/ui/Badge';
 
 export default function RequisitionsPage() {
   const [repairs, setRepairs] = useState<RepairOrder[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
-  const [selectedRoId, setSelectedRoId] = useState<number>(1);
-  const [selectedPartId, setSelectedPartId] = useState<number>(1);
-  const [qty, setQty] = useState<number>(1);
+  const [selectedRoId, setSelectedRoId] = useState<number>(0);
+  const [selectedPartId, setSelectedPartId] = useState<number>(0);
+  const [qtyStr, setQtyStr] = useState<string>('1');
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [requests, setRequests] = useState<PartRequest[]>([]);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -26,13 +29,18 @@ export default function RequisitionsPage() {
       ]);
       setRepairs(roList);
       setParts(pList);
-      if (reqList && reqList.length > 0) {
-        setRequests(reqList);
+      setRequests(reqList || []);
+
+      if (!selectedRoId) {
+        const activeRo =
+          roList.find((r) => r.status === 'IN_REPAIR') ||
+          roList.find((r) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED');
+        if (activeRo) setSelectedRoId(activeRo.id);
+        else if (roList.length > 0) setSelectedRoId(roList[0].id);
       }
-      const activeRo = roList.find((r) => r.status === 'IN_REPAIR') || roList.find((r) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED');
-      if (activeRo) setSelectedRoId(activeRo.id);
-      else if (roList.length > 0) setSelectedRoId(roList[0].id);
-      if (pList.length > 0) setSelectedPartId(pList[0].id);
+      if (!selectedPartId && pList.length > 0) {
+        setSelectedPartId(pList[0].id);
+      }
     } finally {
       setLoading(false);
     }
@@ -44,47 +52,46 @@ export default function RequisitionsPage() {
 
   const selectedRo = repairs.find((r) => r.id === selectedRoId);
   const selectedPart = parts.find((p) => p.id === selectedPartId);
+  const parsedQty = qtyStr.trim() === '' ? NaN : Number(qtyStr);
   const availableStock = selectedPart ? Math.max(0, selectedPart.onHand - selectedPart.reserved) : 0;
-  const isBackorderExpected = qty > availableStock;
+  const isBackorderExpected = Number.isFinite(parsedQty) && parsedQty > availableStock;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPart) return;
+    setSuccessMsg(null);
+    setErrorMsg(null);
 
+    if (!selectedRo || selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED') {
+      setErrorMsg('กรุณาเลือกใบสั่งซ่อมที่ยังเปิดดำเนินการอยู่');
+      return;
+    }
+    if (!selectedPart) {
+      setErrorMsg('กรุณาเลือกอะไหล่ที่ต้องการขอเบิก');
+      return;
+    }
+    if (!Number.isInteger(parsedQty) || parsedQty < 1 || parsedQty > 999) {
+      setErrorMsg('จำนวนอะไหล่ที่ขอเบิกต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง 999 ชิ้น');
+      return;
+    }
+
+    setSubmitting(true);
     try {
       const created = await apiCreatePartRequest({
-        repairId: selectedRoId,
+        repairId: selectedRo.id,
         partId: selectedPart.id,
-        qty,
+        qty: parsedQty,
       });
-      setRequests((prev) => [created, ...prev]);
       setSuccessMsg(
-        `สร้างใบขอเบิก #${created.requestNumber} สำเร็จ (${selectedPart.name} x ${qty}) -> สถานะ: ${
+        `สร้างใบขอเบิก #${created.requestNumber} สำเร็จ (${selectedPart.name} x ${parsedQty}) -> สถานะ: ${
           created.status === 'RESERVED' ? 'จองสต็อกพร้อมจ่าย (RESERVED)' : 'สินค้าขาดสต็อก พักคอย PO (BACKORDERED)'
         }`
       );
-    } catch {
-      const newReqStatus = availableStock >= qty ? 'RESERVED' : 'BACKORDERED';
-      const newReq: PartRequest = {
-        id: requests.length + 1,
-        requestNumber: `REQ-20261105-${String(requests.length + 1).padStart(3, '0')}`,
-        repairId: selectedRoId,
-        partId: selectedPart.id,
-        partCode: selectedPart.partCode,
-        partName: selectedPart.name,
-        qtyRequested: qty,
-        qtyIssued: 0,
-        qtyReturned: 0,
-        status: newReqStatus,
-        createdAt: new Date().toISOString(),
-      };
-
-      setRequests((prev) => [newReq, ...prev]);
-      setSuccessMsg(
-        `สร้างใบขอเบิก #${newReq.requestNumber} สำเร็จ (${selectedPart.name} x ${qty}) -> สถานะ: ${
-          newReqStatus === 'RESERVED' ? 'จองสต็อกพร้อมจ่าย (RESERVED)' : 'สินค้าขาดสต็อก พักคอย PO (BACKORDERED)'
-        }`
-      );
+      setQtyStr('1');
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'ไม่สามารถสร้างใบขอเบิกอะไหล่ได้');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -115,6 +122,16 @@ export default function RequisitionsPage() {
         </div>
       )}
 
+      {errorMsg && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button onClick={() => setErrorMsg(null)} className="text-rose-700">ปิด</button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Requisition Form */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
@@ -123,12 +140,16 @@ export default function RequisitionsPage() {
             <span>ส่งคำขอเบิกอะไหล่ใหม่</span>
           </h2>
 
-          <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <form onSubmit={handleSubmit} noValidate className="space-y-4 text-xs">
             <div>
               <label className="block font-semibold text-slate-700 mb-1">เลือกใบสั่งซ่อม (Repair Order)</label>
               <select
                 value={selectedRoId}
-                onChange={(e) => setSelectedRoId(Number(e.target.value))}
+                onChange={(e) => {
+                  setSelectedRoId(Number(e.target.value));
+                  setErrorMsg(null);
+                }}
+                disabled={loading}
                 className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl"
               >
                 {repairs
@@ -148,7 +169,11 @@ export default function RequisitionsPage() {
               <label className="block font-semibold text-slate-700 mb-1">เลือกอะไหล่ที่ต้องการเบิก</label>
               <select
                 value={selectedPartId}
-                onChange={(e) => setSelectedPartId(Number(e.target.value))}
+                onChange={(e) => {
+                  setSelectedPartId(Number(e.target.value));
+                  setErrorMsg(null);
+                }}
+                disabled={loading}
                 className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl"
               >
                 {parts.map((p) => (
@@ -183,12 +208,19 @@ export default function RequisitionsPage() {
             )}
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">จำนวนที่ต้องการเบิก</label>
+              <label className="block font-semibold text-slate-700 mb-1">จำนวนที่ต้องการเบิก (1 - 999 ชิ้น)</label>
               <input
                 type="number"
                 min="1"
-                value={qty}
-                onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
+                max="999"
+                step="1"
+                onKeyDown={blockInvalidIntKeys}
+                value={qtyStr}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/\D/g, '').slice(0, 3);
+                  setQtyStr(raw);
+                }}
+                placeholder="ระบุจำนวนเต็ม เช่น 1"
                 className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold"
               />
             </div>
@@ -211,12 +243,20 @@ export default function RequisitionsPage() {
 
             <button
               type="submit"
-              disabled={!selectedRo || selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED' || !selectedPart}
+              disabled={
+                submitting ||
+                !selectedRo ||
+                selectedRo.status === 'COMPLETED' ||
+                selectedRo.status === 'CANCELLED' ||
+                !selectedPart
+              }
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <PackagePlus className="w-4 h-4" />
               <span>
-                {selectedRo && (selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED')
+                {submitting
+                  ? 'กำลังสร้างใบขอเบิก...'
+                  : selectedRo && (selectedRo.status === 'COMPLETED' || selectedRo.status === 'CANCELLED')
                   ? `ไม่สามารถขอเบิกได้ (${selectedRo.status})`
                   : 'ยืนยันสร้างใบขอเบิก'}
               </span>

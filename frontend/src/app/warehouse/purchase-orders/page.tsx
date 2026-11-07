@@ -9,16 +9,21 @@ import {
 } from '@/lib/api';
 import { PurchaseOrder, Part } from '@/lib/types';
 import {
-  PackagePlus,
+  blockInvalidDecimalKeys,
+  blockInvalidIntKeys,
+  sanitizeOrgName,
+  validateOrgName,
+} from '@/lib/validation';
+import {
   Truck,
   Plus,
+  Trash2,
   CheckCircle2,
-  Boxes,
-  Calendar,
   Sparkles,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
-import { Badge, StatusBadge } from '@/components/ui/Badge';
+import { StatusBadge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 
 export default function PurchaseOrdersPage() {
@@ -30,7 +35,8 @@ export default function PurchaseOrdersPage() {
   const [poLines, setPoLines] = useState<
     { partId: number; qtyOrdered: number; unitCost: number }[]
   >([{ partId: 1, qtyOrdered: 20, unitCost: 950 }]);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [poError, setPoError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -47,15 +53,59 @@ export default function PurchaseOrdersPage() {
     loadData();
   }, []);
 
+  const addPoLine = () => {
+    const fallbackPart = parts[0];
+    setPoLines([
+      ...poLines,
+      {
+        partId: fallbackPart?.id || 1,
+        qtyOrdered: 10,
+        unitCost: fallbackPart?.costPrice || 500,
+      },
+    ]);
+  };
+
+  const removePoLine = (idx: number) => {
+    if (poLines.length <= 1) return;
+    setPoLines(poLines.filter((_, i) => i !== idx));
+  };
+
   const handleCreatePo = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPoError(null);
+
+    const supplierErr = validateOrgName(supplierName, 'ชื่อผู้จัดจำหน่าย / ซัพพลายเออร์');
+    if (supplierErr) {
+      setPoError(supplierErr);
+      return;
+    }
+
+    if (poLines.length === 0) {
+      setPoError('กรุณาเพิ่มรายการอะไหล่อย่างน้อย 1 รายการ');
+      return;
+    }
+
+    for (const line of poLines) {
+      if (!Number.isInteger(line.qtyOrdered) || line.qtyOrdered < 1 || line.qtyOrdered > 10000) {
+        setPoError('จำนวนสั่งซื้อต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง 10,000 หน่วย');
+        return;
+      }
+      if (!Number.isFinite(line.unitCost) || line.unitCost <= 0 || line.unitCost > 1000000) {
+        setPoError('ราคาต้นทุนต่อหน่วยต้องมากกว่า 0 และไม่เกิน 1,000,000 บาท');
+        return;
+      }
+    }
+
     try {
-      const newPo = await apiCreatePurchaseOrder(supplierName, poLines);
-      setMsg(`สร้างใบสั่งซื้อใหม่สำเร็จ: ${newPo.poNumber} ยอดรวม ฿${newPo.totalCost.toLocaleString()}`);
+      const newPo = await apiCreatePurchaseOrder(supplierName.trim(), poLines);
+      setMsg({
+        type: 'success',
+        text: `สร้างใบสั่งซื้อใหม่สำเร็จ: ${newPo.poNumber} ยอดรวม ฿${newPo.totalCost.toLocaleString()}`,
+      });
       setCreateModalOpen(false);
       loadData();
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการสร้างใบสั่งซื้อ');
+      setPoError(err.message || 'เกิดข้อผิดพลาดในการสร้างใบสั่งซื้อ');
     }
   };
 
@@ -65,12 +115,15 @@ export default function PurchaseOrdersPage() {
     try {
       await apiReceivePurchaseOrder(
         po.id,
-        po.lines.map((l) => ({ poLineId: l.id, qtyReceived: l.qtyOrdered }))
+        po.lines.map((l) => ({ poLineId: l.id, qtyReceived: Math.max(0, l.qtyOrdered - l.qtyReceived) }))
       );
-      setMsg(`รับสินค้าตามใบสั่งซื้อ ${po.poNumber} เรียบร้อยแล้ว! สต็อกปรับเพิ่มและจัดสรรให้กับงานซ่อมที่รออะไหล่อัตโนมัติ`);
+      setMsg({
+        type: 'success',
+        text: `รับสินค้าตามใบสั่งซื้อ ${po.poNumber} เรียบร้อยแล้ว! สต็อกปรับเพิ่มและจัดสรรให้กับงานซ่อมที่รออะไหล่อัตโนมัติ`,
+      });
       loadData();
     } catch (err: any) {
-      alert(err.message || 'เกิดข้อผิดพลาดในการรับสินค้า');
+      setMsg({ type: 'error', text: err.message || 'เกิดข้อผิดพลาดในการรับสินค้า' });
     }
   };
 
@@ -99,7 +152,10 @@ export default function PurchaseOrdersPage() {
             <span>รีเฟรช</span>
           </button>
           <button
-            onClick={() => setCreateModalOpen(true)}
+            onClick={() => {
+              setPoError(null);
+              setCreateModalOpen(true);
+            }}
             className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-500/20"
           >
             <Plus className="w-4 h-4" />
@@ -109,12 +165,24 @@ export default function PurchaseOrdersPage() {
       </div>
 
       {msg && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-center justify-between">
+        <div
+          className={`p-4 rounded-xl border text-xs font-medium flex items-center justify-between ${
+            msg.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-700'
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>{msg}</span>
+            {msg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600" />
+            )}
+            <span>{msg.text}</span>
           </div>
-          <button onClick={() => setMsg(null)} className="text-emerald-700">ปิด</button>
+          <button onClick={() => setMsg(null)} className="font-bold">
+            ปิด
+          </button>
         </div>
       )}
 
@@ -206,19 +274,44 @@ export default function PurchaseOrdersPage() {
         maxWidth="xl"
       >
         <form onSubmit={handleCreatePo} className="space-y-4 text-xs">
+          {poError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+              <span>{poError}</span>
+            </div>
+          )}
+
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">ชื่อผู้จัดจำหน่าย / ซัพพลายเออร์</label>
+            <label className="block font-semibold text-slate-700 mb-1">
+              ชื่อผู้จัดจำหน่าย / ซัพพลายเออร์ <span className="text-rose-500">*</span>
+            </label>
             <input
               type="text"
               required
+              maxLength={120}
+              placeholder="เช่น บริษัท อะไหล่สยามออโต้พาร์ท จำกัด"
               value={supplierName}
-              onChange={(e) => setSupplierName(e.target.value)}
+              onChange={(e) => {
+                setPoError(null);
+                setSupplierName(sanitizeOrgName(e.target.value));
+              }}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl"
             />
+            <p className="text-[10px] text-slate-400 mt-1">ห้ามใส่ตัวเลขในชื่อผู้จัดจำหน่าย</p>
           </div>
 
           <div className="space-y-3">
-            <label className="block font-semibold text-slate-700">รายการอะไหล่ที่ต้องการสั่งซื้อ</label>
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-slate-700">รายการอะไหล่ที่ต้องการสั่งซื้อ</label>
+              <button
+                type="button"
+                onClick={addPoLine}
+                className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 font-bold text-xs hover:bg-amber-100 flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>เพิ่มรายการ</span>
+              </button>
+            </div>
             {poLines.map((line, idx) => (
               <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3">
                 <select
@@ -244,10 +337,16 @@ export default function PurchaseOrdersPage() {
                   <input
                     type="number"
                     min="1"
+                    max="10000"
+                    step="1"
+                    required
                     value={line.qtyOrdered}
+                    onKeyDown={blockInvalidIntKeys}
                     onChange={(e) => {
+                      setPoError(null);
                       const copy = [...poLines];
-                      copy[idx].qtyOrdered = Math.max(1, Number(e.target.value));
+                      const val = Number(e.target.value.replace(/[^0-9]/g, ''));
+                      copy[idx].qtyOrdered = Math.min(10000, Math.max(1, val || 1));
                       setPoLines(copy);
                     }}
                     className="w-16 px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono text-center"
@@ -258,15 +357,32 @@ export default function PurchaseOrdersPage() {
                   <span className="text-slate-400">ต้นทุน:</span>
                   <input
                     type="number"
+                    min="0.01"
+                    max="1000000"
+                    step="0.01"
+                    required
                     value={line.unitCost}
+                    onKeyDown={blockInvalidDecimalKeys}
                     onChange={(e) => {
+                      setPoError(null);
                       const copy = [...poLines];
-                      copy[idx].unitCost = Number(e.target.value);
+                      const val = Number(e.target.value);
+                      copy[idx].unitCost = Number.isFinite(val) ? Math.max(0, val) : 0;
                       setPoLines(copy);
                     }}
                     className="w-20 px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono text-right"
                   />
                 </div>
+
+                {poLines.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removePoLine(idx)}
+                    className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             ))}
           </div>

@@ -3,6 +3,22 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiCheckIn } from '@/lib/api';
+import {
+  blockInvalidIntKeys,
+  sanitizeCodeUpper,
+  sanitizeGeneralText,
+  sanitizeLicensePlate,
+  sanitizeOrgName,
+  sanitizePersonName,
+  sanitizePhone,
+  sanitizeVehicleModel,
+  validateClaimNo,
+  validateLicensePlate,
+  validateMeaningfulText,
+  validateOrgName,
+  validatePersonName,
+  validatePhone,
+} from '@/lib/validation';
 import { ClipboardList, Car, User, AlertCircle, CheckCircle, ArrowRight, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 
@@ -14,7 +30,7 @@ export default function CheckInPage() {
     licensePlate: '',
     brand: 'Toyota',
     model: 'Corolla Altis',
-    mileage: 65000,
+    mileage: '65000',
     symptoms: '',
     queueClass: 'NORMAL' as 'NORMAL' | 'PRIORITY',
     priorityReason: '',
@@ -31,25 +47,81 @@ export default function CheckInPage() {
     e.preventDefault();
     setError(null);
 
-    if (formData.queueClass === 'PRIORITY' && !formData.priorityReason.trim()) {
-      setError('กรุณาระบุเหตุผลความจำเป็นสำหรับคิวด่วนพิเศษ (Priority Reason)');
+    const nameErr = validatePersonName(formData.customerName, 'ชื่อ-นามสกุลลูกค้า');
+    if (nameErr) {
+      setError(nameErr);
       return;
+    }
+
+    const phoneErr = validatePhone(formData.phone, { label: 'เบอร์โทรศัพท์ติดต่อ' });
+    if (phoneErr) {
+      setError(phoneErr);
+      return;
+    }
+
+    const plateErr = validateLicensePlate(formData.licensePlate);
+    if (plateErr) {
+      setError(plateErr);
+      return;
+    }
+
+    const modelErr = validateMeaningfulText(formData.model, 'รุ่นรถยนต์ (Model)', 2);
+    if (modelErr) {
+      setError(modelErr);
+      return;
+    }
+
+    const mileageNum = formData.mileage.trim() === '' ? NaN : Number(formData.mileage);
+    if (!Number.isInteger(mileageNum) || mileageNum < 0 || mileageNum > 2000000) {
+      setError('กรุณากรอกเลขไมล์เป็นจำนวนเต็มตั้งแต่ 0 ถึง 2,000,000 กิโลเมตร');
+      return;
+    }
+
+    const symptomsErr = validateMeaningfulText(formData.symptoms, 'อาการชำรุดเบื้องต้น', 3);
+    if (symptomsErr) {
+      setError(symptomsErr);
+      return;
+    }
+
+    if (formData.queueClass === 'PRIORITY') {
+      const prioErr = validateMeaningfulText(
+        formData.priorityReason,
+        'เหตุผลความจำเป็นสำหรับคิวด่วนพิเศษ (Priority Reason)',
+        3
+      );
+      if (prioErr) {
+        setError(prioErr);
+        return;
+      }
+    }
+
+    if (formData.isInsured) {
+      const insurerErr = validateOrgName(formData.insurerName, 'ชื่อบริษัทประกันภัย');
+      if (insurerErr) {
+        setError(insurerErr);
+        return;
+      }
+      const claimErr = validateClaimNo(formData.insuranceClaimNo);
+      if (claimErr) {
+        setError(claimErr);
+        return;
+      }
     }
 
     setLoading(true);
     try {
       const res = await apiCheckIn({
-        customerName: formData.customerName,
-        phone: formData.phone,
-        licensePlate: formData.licensePlate,
+        customerName: formData.customerName.trim(),
+        phone: formData.phone.trim(),
+        licensePlate: formData.licensePlate.trim(),
         brand: formData.brand,
-        model: formData.model,
-        mileage: Number(formData.mileage) || 0,
-        symptoms: formData.symptoms,
+        model: formData.model.trim(),
+        mileage: mileageNum,
+        symptoms: formData.symptoms.trim(),
         queueClass: formData.queueClass,
-        priorityReason: formData.priorityReason,
-        insurerName: formData.isInsured ? formData.insurerName : undefined,
-        insuranceClaimNo: formData.isInsured ? formData.insuranceClaimNo : undefined,
+        priorityReason: formData.queueClass === 'PRIORITY' ? formData.priorityReason.trim() : undefined,
+        insurerName: formData.isInsured ? formData.insurerName.trim() : undefined,
+        insuranceClaimNo: formData.isInsured ? formData.insuranceClaimNo.trim() : undefined,
       });
       setCreatedOrder(res);
     } catch (err: any) {
@@ -125,7 +197,7 @@ export default function CheckInPage() {
                   licensePlate: '',
                   brand: 'Toyota',
                   model: 'Corolla Altis',
-                  mileage: 65000,
+                  mileage: '65000',
                   symptoms: '',
                   queueClass: 'NORMAL',
                   priorityReason: '',
@@ -172,11 +244,16 @@ export default function CheckInPage() {
                   <input
                     type="text"
                     required
+                    maxLength={100}
                     placeholder="เช่น คุณกมล สุขสมบูรณ์"
                     value={formData.customerName}
-                    onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+                    onChange={(e) => {
+                      setError(null);
+                      setFormData({ ...formData, customerName: sanitizePersonName(e.target.value) });
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-blue-500"
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">เฉพาะตัวอักษรภาษาไทย/อังกฤษ (ห้ามใส่ตัวเลข)</p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -184,12 +261,18 @@ export default function CheckInPage() {
                   </label>
                   <input
                     type="tel"
+                    inputMode="numeric"
                     required
+                    maxLength={12}
                     placeholder="เช่น 089-123-4567"
                     value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => {
+                      setError(null);
+                      setFormData({ ...formData, phone: sanitizePhone(e.target.value) });
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-blue-500"
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">เฉพาะตัวเลข 9-10 หลัก ขึ้นต้นด้วย 0 (ห้ามใส่ตัวอักษร)</p>
                 </div>
               </div>
             </div>
@@ -208,9 +291,13 @@ export default function CheckInPage() {
                   <input
                     type="text"
                     required
+                    maxLength={35}
                     placeholder="เช่น 1กข-8888 กทม."
                     value={formData.licensePlate}
-                    onChange={(e) => setFormData({ ...formData, licensePlate: e.target.value })}
+                    onChange={(e) => {
+                      setError(null);
+                      setFormData({ ...formData, licensePlate: sanitizeLicensePlate(e.target.value) });
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -232,13 +319,19 @@ export default function CheckInPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">รุ่นรถยนต์ (Model)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    รุ่นรถยนต์ (Model) <span className="text-rose-500">*</span>
+                  </label>
                   <input
                     type="text"
                     required
+                    maxLength={50}
                     placeholder="เช่น Corolla Altis 1.8G"
                     value={formData.model}
-                    onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                    onChange={(e) => {
+                      setError(null);
+                      setFormData({ ...formData, model: sanitizeVehicleModel(e.target.value) });
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -248,9 +341,23 @@ export default function CheckInPage() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">เลขไมล์ปัจจุบัน (กิโลเมตร)</label>
                 <input
                   type="number"
+                  min="0"
+                  max="2000000"
+                  step="1"
+                  required
                   value={formData.mileage}
-                  onChange={(e) => setFormData({ ...formData, mileage: Number(e.target.value) })}
-                  className="w-full sm:w-1/3 px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-blue-500"
+                  onKeyDown={blockInvalidIntKeys}
+                  onChange={(e) => {
+                    setError(null);
+                    const digits = e.target.value.replace(/[^0-9]/g, '');
+                    if (digits === '') {
+                      setFormData({ ...formData, mileage: '' });
+                    } else {
+                      const clamped = Math.min(2000000, Number(digits));
+                      setFormData({ ...formData, mileage: String(clamped) });
+                    }
+                  }}
+                  className="w-full sm:w-1/3 px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -261,9 +368,13 @@ export default function CheckInPage() {
                 <textarea
                   rows={3}
                   required
+                  maxLength={300}
                   placeholder="เช่น สตาร์ทติดยากช่วงเช้า เบรกมีเสียงดังจี๊ดๆ แอร์ไม่เย็นเวลารถติด..."
                   value={formData.symptoms}
-                  onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
+                  onChange={(e) => {
+                    setError(null);
+                    setFormData({ ...formData, symptoms: sanitizeGeneralText(e.target.value, 300) });
+                  }}
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -334,9 +445,14 @@ export default function CheckInPage() {
                   </label>
                   <input
                     type="text"
+                    required
+                    maxLength={200}
                     placeholder="เช่น รถจอดเสียกลางทาง / ผู้ป่วยฉุกเฉิน"
                     value={formData.priorityReason}
-                    onChange={(e) => setFormData({ ...formData, priorityReason: e.target.value })}
+                    onChange={(e) => {
+                      setError(null);
+                      setFormData({ ...formData, priorityReason: sanitizeGeneralText(e.target.value, 200) });
+                    }}
                     className="w-full px-3.5 py-2 bg-rose-50/30 border border-rose-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-rose-500 text-rose-900"
                   />
                 </div>
@@ -350,7 +466,10 @@ export default function CheckInPage() {
                 <input
                   type="checkbox"
                   checked={formData.isInsured}
-                  onChange={(e) => setFormData({ ...formData, isInsured: e.target.checked })}
+                  onChange={(e) => {
+                    setError(null);
+                    setFormData({ ...formData, isInsured: e.target.checked });
+                  }}
                   className="w-4 h-4 text-blue-600 rounded"
                 />
               </div>
@@ -358,22 +477,38 @@ export default function CheckInPage() {
               {formData.isInsured && (
                 <div className="space-y-3 pt-1 animate-in fade-in">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">บริษัทประกันภัย</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      บริษัทประกันภัย <span className="text-rose-500">*</span>
+                    </label>
                     <input
                       type="text"
+                      required
+                      maxLength={100}
+                      placeholder="เช่น วิริยะประกันภัย"
                       value={formData.insurerName}
-                      onChange={(e) => setFormData({ ...formData, insurerName: e.target.value })}
+                      onChange={(e) => {
+                        setError(null);
+                        setFormData({ ...formData, insurerName: sanitizeOrgName(e.target.value) });
+                      }}
                       className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs"
                     />
+                    <p className="text-[10px] text-slate-400 mt-0.5">ห้ามใส่ตัวเลขในชื่อบริษัทประกันภัย</p>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">เลขที่ใบเคลม (Claim No.)</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      เลขที่ใบเคลม (Claim No.) <span className="text-rose-500">*</span>
+                    </label>
                     <input
                       type="text"
-                      placeholder="CLM-2026-XXXX"
+                      required
+                      maxLength={30}
+                      placeholder="CLM-2026-0001"
                       value={formData.insuranceClaimNo}
-                      onChange={(e) => setFormData({ ...formData, insuranceClaimNo: e.target.value })}
-                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono"
+                      onChange={(e) => {
+                        setError(null);
+                        setFormData({ ...formData, insuranceClaimNo: sanitizeCodeUpper(e.target.value, 30) });
+                      }}
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono uppercase"
                     />
                   </div>
                   <p className="text-[10px] text-amber-600">

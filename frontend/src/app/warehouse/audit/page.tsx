@@ -4,6 +4,11 @@ import React, { useEffect, useState } from 'react';
 import { apiGetParts, apiAdjustStock } from '@/lib/api';
 import { Part } from '@/lib/types';
 import {
+  blockInvalidIntKeys,
+  sanitizeGeneralText,
+  validateMeaningfulText,
+} from '@/lib/validation';
+import {
   FileSpreadsheet,
   AlertTriangle,
   CheckCircle2,
@@ -11,13 +16,12 @@ import {
   Search,
   RefreshCw,
 } from 'lucide-react';
-import { StatusBadge, Badge } from '@/components/ui/Badge';
 
 export default function WarehouseAuditPage() {
   const [parts, setParts] = useState<Part[]>([]);
   const [search, setSearch] = useState('');
   const [selectedPartId, setSelectedPartId] = useState<number | null>(null);
-  const [physicalCount, setPhysicalCount] = useState<number>(0);
+  const [physicalCountStr, setPhysicalCountStr] = useState<string>('0');
   const [reason, setReason] = useState<string>('ตรวจนับสต็อกประจำสัปดาห์ (Cycle Count Audit)');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -30,7 +34,12 @@ export default function WarehouseAuditPage() {
       setParts(data);
       if (data.length > 0 && !selectedPartId) {
         setSelectedPartId(data[0].id);
-        setPhysicalCount(data[0].onHand);
+        setPhysicalCountStr(String(data[0].onHand));
+      } else if (selectedPartId) {
+        const updated = data.find((p) => p.id === selectedPartId);
+        if (updated) {
+          setPhysicalCountStr(String(updated.onHand));
+        }
       }
     } finally {
       setLoading(false);
@@ -42,12 +51,13 @@ export default function WarehouseAuditPage() {
   }, []);
 
   const selectedPart = parts.find((p) => p.id === selectedPartId);
+  const physicalCount = physicalCountStr.trim() === '' ? 0 : Number(physicalCountStr);
   const delta = selectedPart ? physicalCount - selectedPart.onHand : 0;
   const isBelowReserved = selectedPart ? physicalCount < selectedPart.reserved : false;
 
   const handleSelectPart = (p: Part) => {
     setSelectedPartId(p.id);
-    setPhysicalCount(p.onHand);
+    setPhysicalCountStr(String(p.onHand));
     setMsg(null);
   };
 
@@ -55,8 +65,14 @@ export default function WarehouseAuditPage() {
     e.preventDefault();
     if (!selectedPart) return;
 
-    if (!reason.trim()) {
-      setMsg({ type: 'error', text: 'กรุณาระบุเหตุผลประกอบการปรับปรุงยอดสต็อก (Mandatory Reason)' });
+    if (physicalCountStr.trim() === '' || !Number.isInteger(physicalCount) || physicalCount < 0 || physicalCount > 100000) {
+      setMsg({ type: 'error', text: 'ยอดตรวจนับจริงต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 100,000 หน่วย' });
+      return;
+    }
+
+    const reasonErr = validateMeaningfulText(reason, 'เหตุผลประกอบการปรับปรุงยอดสต็อก (Mandatory Reason)', 3);
+    if (reasonErr) {
+      setMsg({ type: 'error', text: reasonErr });
       return;
     }
 
@@ -70,7 +86,7 @@ export default function WarehouseAuditPage() {
 
     setSubmitting(true);
     try {
-      await apiAdjustStock(selectedPart.id, delta, reason);
+      await apiAdjustStock(selectedPart.id, delta, reason.trim());
       setMsg({
         type: 'success',
         text: `ปรับยอดสต็อกสำเร็จ: ${selectedPart.name} ปรับ ${delta >= 0 ? `+${delta}` : delta} หน่วย (คงเหลือใหม่: ${physicalCount})`,
@@ -124,7 +140,7 @@ export default function WarehouseAuditPage() {
             )}
             <span>{msg.text}</span>
           </div>
-          <button onClick={() => setMsg(null)}>ปิด</button>
+          <button onClick={() => setMsg(null)} className="font-bold">ปิด</button>
         </div>
       )}
 
@@ -140,6 +156,7 @@ export default function WarehouseAuditPage() {
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
+              maxLength={80}
               placeholder="ค้นหา SKU หรือชื่ออะไหล่..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -159,6 +176,7 @@ export default function WarehouseAuditPage() {
                 return (
                   <button
                     key={p.id}
+                    type="button"
                     onClick={() => handleSelectPart(p)}
                     className={`w-full text-left p-2.5 rounded-xl border transition-all text-xs ${
                       isSelected
@@ -251,11 +269,27 @@ export default function WarehouseAuditPage() {
                   <input
                     type="number"
                     min="0"
+                    max="100000"
+                    step="1"
                     required
-                    value={physicalCount}
-                    onChange={(e) => setPhysicalCount(Number(e.target.value))}
+                    value={physicalCountStr}
+                    onKeyDown={blockInvalidIntKeys}
+                    onChange={(e) => {
+                      setMsg(null);
+                      const digits = e.target.value.replace(/[^0-9]/g, '');
+                      if (digits === '') {
+                        setPhysicalCountStr('');
+                      } else {
+                        setPhysicalCountStr(String(Math.min(100000, Number(digits))));
+                      }
+                    }}
                     className="w-full sm:w-1/2 px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-base font-mono font-bold text-slate-900"
                   />
+                  {isBelowReserved && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                      * ยอดตรวจนับต่ำกว่ายอดติดจอง ({selectedPart.reserved} หน่วย) ไม่สามารถบันทึกได้
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -265,13 +299,17 @@ export default function WarehouseAuditPage() {
                   <textarea
                     rows={3}
                     required
+                    maxLength={300}
                     placeholder="เช่น ตรวจนับสต็อกประจำเดือนพบสินค้าเสียหายจากการจัดวาง นำส่งทำลาย..."
                     value={reason}
-                    onChange={(e) => setReason(e.target.value)}
+                    onChange={(e) => {
+                      setMsg(null);
+                      setReason(sanitizeGeneralText(e.target.value, 300));
+                    }}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    * ข้อกำหนดระบบ: ช่องเหตุผลต้องไม่ว่างเปล่า และระบบจะบันทึกประวัติการปรับยอดเข้าสู่สมุดบัญชีสต็อก (ADJUST)
+                    * ข้อกำหนดระบบ: ช่องเหตุผลต้องระบุเป็นข้อความ และระบบจะบันทึกประวัติการปรับยอดเข้าสู่สมุดบัญชีสต็อก (ADJUST)
                   </p>
                 </div>
               </div>
@@ -279,7 +317,7 @@ export default function WarehouseAuditPage() {
               <div className="pt-4 border-t border-slate-100 flex justify-end">
                 <button
                   type="submit"
-                  disabled={submitting || delta === 0 || isBelowReserved}
+                  disabled={submitting || delta === 0 || isBelowReserved || physicalCountStr.trim() === ''}
                   className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shadow-md shadow-amber-500/20 disabled:opacity-40 flex items-center gap-2"
                 >
                   <Scale className="w-4 h-4" />

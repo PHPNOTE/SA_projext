@@ -21,6 +21,7 @@ public class GlobalExceptionHandler {
         log.warn("GarageException [{}]: {}", ex.getCode(), ex.getMessage());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("error", ex.getMessage());
+        body.put("message", ex.getMessage());
         if (ex.getCode() != null) {
             body.put("code", ex.getCode());
         }
@@ -36,6 +37,7 @@ public class GlobalExceptionHandler {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("error", msg);
+        body.put("message", msg);
         body.put("code", "VALIDATION_ERROR");
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
@@ -43,8 +45,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
         log.error("Unhandled exception: ", ex);
+        String msg = ex.getMessage() != null ? ex.getMessage() : "Internal Server Error";
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("error", ex.getMessage() != null ? ex.getMessage() : "Internal Server Error");
+        body.put("error", msg);
+        body.put("message", msg);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
     }
 }

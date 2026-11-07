@@ -105,6 +105,11 @@ public class StockService {
 
         String sku = req.sku().trim();
         int reorderLevel = req.reorderLevel() != null ? req.reorderLevel() : 0;
+        com.garage.util.InputValidator.requireSku(sku);
+        com.garage.util.InputValidator.requireMeaningfulText(req.name(), "Part name");
+        if (reorderLevel < 0) {
+            throw new ValidationException("Reorder level cannot be negative");
+        }
 
         return partRepository.findBySku(sku).map(existing -> {
             Part updated = new Part(
@@ -246,6 +251,8 @@ public class StockService {
     public Part adjustStock(Long partId, int delta, String reason, Long userId) {
         if (partId == null || reason == null || reason.trim().isEmpty()) {
             throw new ValidationException("partId, delta, and non-empty reason required");
+        } else {
+            com.garage.util.InputValidator.requireMeaningfulText(reason, "Adjustment reason");
         }
         Part part = partRepository.findById(partId)
             .orElseThrow(() -> new ResourceNotFoundException("Part not found: " + partId));
@@ -284,6 +291,7 @@ public class StockService {
             throw new ValidationException("Supplier and line items required");
         }
 
+        com.garage.util.InputValidator.requireOrgName(req.supplierName(), "Supplier name");
         for (POLineRequest line : req.lines()) {
             if (line.qtyOrdered() == null || line.qtyOrdered() <= 0
                 || line.unitCost() == null || line.unitCost().signum() < 0) {

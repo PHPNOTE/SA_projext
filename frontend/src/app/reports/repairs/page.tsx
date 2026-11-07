@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { apiGetRepairSummaryReport, apiGetRepairs } from '@/lib/api';
-import { RepairSummaryReport, RepairOrder } from '@/lib/types';
+import { apiGetRepairSummaryReport } from '@/lib/api';
+import { RepairSummaryReport } from '@/lib/types';
 import {
   FileText,
   Printer,
@@ -16,13 +16,13 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { StatCard } from '@/components/ui/StatCard';
-import { StatusBadge, Badge } from '@/components/ui/Badge';
+import { StatusBadge } from '@/components/ui/Badge';
 import { PrintHeader, PrintSignatures } from '@/components/ui/PrintHeader';
 
 export default function RepairSummaryReportPage() {
   const [report, setReport] = useState<RepairSummaryReport | null>(null);
   const [startDate, setStartDate] = useState('2026-11-01');
-  const [endDate, setEndDate] = useState('2026-11-05');
+  const [endDate, setEndDate] = useState('2026-11-30');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [mechanicFilter, setMechanicFilter] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
@@ -41,6 +41,22 @@ export default function RepairSummaryReportPage() {
   useEffect(() => {
     loadReport();
   }, [startDate, endDate, statusFilter, mechanicFilter]);
+
+  const handleStartDateChange = (nextStart: string) => {
+    if (!nextStart) return;
+    setStartDate(nextStart);
+    if (endDate && nextStart > endDate) {
+      setEndDate(nextStart);
+    }
+  };
+
+  const handleEndDateChange = (nextEnd: string) => {
+    if (!nextEnd) return;
+    setEndDate(nextEnd);
+    if (startDate && nextEnd < startDate) {
+      setStartDate(nextEnd);
+    }
+  };
 
   const handlePrint = () => {
     window.print();
@@ -112,7 +128,8 @@ export default function RepairSummaryReportPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleExportCsv}
-            className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+            disabled={!report || report.records.length === 0}
+            className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 shadow-sm disabled:opacity-50"
           >
             <Download className="w-3.5 h-3.5" />
             <span>ส่งออก CSV (Excel)</span>
@@ -136,7 +153,8 @@ export default function RepairSummaryReportPage() {
             <input
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              max={endDate}
+              onChange={(e) => handleStartDateChange(e.target.value)}
               className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
             />
           </div>
@@ -146,7 +164,8 @@ export default function RepairSummaryReportPage() {
             <input
               type="date"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              min={startDate}
+              onChange={(e) => handleEndDateChange(e.target.value)}
               className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
             />
           </div>
